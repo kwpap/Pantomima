@@ -149,6 +149,12 @@ button:disabled {
   box-shadow: 0 0 0 1px var(--primary);
 }
 
+.option.selected {
+  background: #1a3a5c;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
 .option.disabled {
   opacity: 0.35;
 }
