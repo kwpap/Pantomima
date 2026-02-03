@@ -137,46 +137,132 @@ const stripHtml = (html) => {
   return tmp.textContent || tmp.innerText || "";
 };
 
-const fetchWords = async (category = "random") => {
-  let titles = [];
+/**
+ * Heuristic Filter for "Pantomima" Playability
+ * Returns true if the article is suitable for a charades game.
+ * @param {Object} article - The Wikipedia article object (must include .title and .extract)
+ * @returns {boolean}
+ */
+const isPlayable = (article) => {
+  if (!article || !article.title) return false;
 
-  if (category === "random" || category === "all") {
-    // Fetch random articles
-    const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=10&rnnamespace=0`;
-    const randomRes = await fetch(randomUrl);
-    const randomData = await randomRes.json();
-    titles = randomData.query.random.map((item) => item.title);
-  } else {
-    // Fetch from category
-    const categoryUrl = `${WIKI_API}?origin=*&action=query&format=json&list=categorymembers&cmtitle=${encodeURIComponent(
-      category
-    )}&cmlimit=50&cmnamespace=0`;
-    const categoryRes = await fetch(categoryUrl);
-    const categoryData = await categoryRes.json();
-    const members = categoryData.query.categorymembers || [];
-    
-    // Shuffle and pick top 10
-    const shuffled = members.sort(() => 0.5 - Math.random());
-    titles = shuffled.slice(0, 10).map((item) => item.title);
+  const title = article.title.trim();
+  // Use the extract (summary) if available, otherwise empty string
+  const summary = (article.extract || "").toLowerCase();
+  const titleLower = title.toLowerCase();
+
+  // --- RULE 1: TITLE LENGTH & STRUCTURE ---
+  // Split by spaces to count words
+  const wordCount = title.split(/\s+/).length;
+
+  // Reject if too short (empty) or too long (over 6 words is usually a complex sentence)
+  if (wordCount < 1 || wordCount > 6) return false;
+
+  // --- RULE 2: THE "CLEAN TEXT" CHECK ---
+  // Reject titles with numbers (years, dates, "Apollo 13")
+  // Regex matches any digit 0-9
+  if (/\d/.test(title)) return false;
+
+  // Reject titles with "meta-data" symbols: Parentheses () or Colons :
+  // Example: "Paris (Mythology)" or "List of: Cities"
+  if (/[():]/.test(title)) return false;
+
+  // --- RULE 3: GREEK WIKIPEDIA "SYSTEM" FILTERS ---
+  // These prefixes indicate non-game pages
+  const bannedPrefixes = [
+    "κατάλογος", // List
+    "αρχείο",    // File
+    "πρότυπο",   // Template
+    "κατηγορία", // Category
+    "βοήθεια",   // Help
+    "χρήστης",   // User
+    "συζήτηση",  // Talk page
+    "βικιπαίδεια"// Wikipedia meta page
+  ];
+
+  if (bannedPrefixes.some(prefix => titleLower.startsWith(prefix))) {
+    return false;
   }
 
-  // Fetch extracts and images for the selected titles
-  const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
-    titles.join("|")
-  )}`;
-  const extractsRes = await fetch(extractsAndImagesUrl);
-  const extractsData = await extractsRes.json();
-  const pages = extractsData.query.pages;
+  // --- RULE 4: CONTENT QUALITY CHECK ---
+  // If the summary is missing or extremely short, it's likely a "stub" or broken page.
+  if (summary.length < 50) return false;
 
-  const words = Object.values(pages).map((page) => ({
-    title: page.title,
-    extract: page.extract || "(No description available)",
-    image: page.thumbnail?.source || null,
-  }));
+  // --- RULE 5: CONTEXT BANS (SUMMARY SCAN) ---
+  // Even if the title looks good, the summary might reveal it's a technical list
+  // or a disambiguation page (where one word has 10 meanings).
+  const bannedKeywords = [
+    "αποσαφήνιση", // Disambiguation page
+    "αναφέρεται σε", // "Refers to..." (often disambiguation)
+    "μπορεί να αναφέρεται", // "May refer to..."
+  ];
 
-  console.log(`Loaded ${words.length} words from category: ${category}`, words);
+  if (bannedKeywords.some(keyword => summary.includes(keyword))) {
+    return false;
+  }
 
-  return words.sort(() => 0.5 - Math.random());
+  // If it passed all gauntlets, it's a valid game word!
+  return true;
+};
+
+const fetchWords = async (category = "random") => {
+  const validWords = [];
+  const maxAttempts = 100; // Safety limit to prevent infinite loops
+  let attempts = 0;
+
+  while (validWords.length < 10 && attempts < maxAttempts) {
+    let titles = [];
+
+    if (category === "random" || category === "all") {
+      // Fetch random articles (fetch more than needed to account for filtering)
+      const batchSize = Math.min(20, 10 + (10 - validWords.length) * 2);
+      const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=${batchSize}&rnnamespace=0`;
+      const randomRes = await fetch(randomUrl);
+      const randomData = await randomRes.json();
+      titles = randomData.query.random.map((item) => item.title);
+    } else {
+      // Fetch from category (fetch larger batch for filtering)
+      const categoryUrl = `${WIKI_API}?origin=*&action=query&format=json&list=categorymembers&cmtitle=${encodeURIComponent(
+        category
+      )}&cmlimit=50&cmnamespace=0`;
+      const categoryRes = await fetch(categoryUrl);
+      const categoryData = await categoryRes.json();
+      const members = categoryData.query.categorymembers || [];
+      
+      // Shuffle and get batch
+      const shuffled = members.sort(() => 0.5 - Math.random());
+      titles = shuffled.slice(0, 30).map((item) => item.title);
+    }
+
+    // Fetch extracts and images for all titles
+    if (titles.length > 0) {
+      const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
+        titles.join("|")
+      )}`;
+      const extractsRes = await fetch(extractsAndImagesUrl);
+      const extractsData = await extractsRes.json();
+      const pages = extractsData.query.pages;
+
+      const articles = Object.values(pages).map((page) => ({
+        title: page.title,
+        extract: page.extract || "(No description available)",
+        image: page.thumbnail?.source || null,
+      }));
+
+      // Filter articles based on heuristic
+      const playableArticles = articles.filter(article => isPlayable(article));
+      validWords.push(...playableArticles);
+    }
+
+    attempts++;
+  }
+
+  // Take only the first 10 and shuffle
+  const finalWords = validWords.slice(0, 10).sort(() => 0.5 - Math.random());
+
+  console.log(`Loaded ${finalWords.length} words from category: ${category}`, finalWords);
+
+  return finalWords;
 };
 
 const showModal = (title, text) => {
@@ -456,7 +542,6 @@ const renderBriefing = () => {
 
   const word = game.words[game.chosenIndex];
   $("#briefWord").textContent = word.title;
-  $("#briefExcerpt").textContent = word.extract;
 
   $("#startRoundBtn").addEventListener("click", () => {
     game.timerRemaining = game.roundDuration;
