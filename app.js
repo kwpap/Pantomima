@@ -137,7 +137,7 @@ const stripHtml = (html) => {
 const fetchWords = async (category = "random") => {
   let titles = [];
 
-  if (category === "random") {
+  if (category === "random" || category === "all") {
     // Fetch random articles
     const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=10&rnnamespace=0`;
     const randomRes = await fetch(randomUrl);
