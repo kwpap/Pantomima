@@ -47,6 +47,9 @@ class Game {
     this.timerRemaining = 0;
     this.endedEarly = false;
     this.lastResult = null;
+    this.category = "random";
+    this.prefetchedWords = null;
+    this.prefetchPromise = null;
   }
 
   save() {
@@ -285,6 +288,9 @@ const renderSetup = () => {
     game.selectedIndices = [];
     game.chosenIndex = null;
     game.lastResult = null;
+    game.category = category;
+    game.prefetchedWords = null;
+    game.prefetchPromise = null;
 
     await loadWordsAndGo(category);
   });
@@ -310,9 +316,25 @@ const renderLoading = () => {
 };
 
 const loadWordsAndGo = async (category = "random") => {
-  setState(GameStates.LOADING);
   try {
-    const words = await fetchWords(category);
+    let words;
+    
+    // Check if words are already prefetched
+    if (game.prefetchedWords) {
+      words = game.prefetchedWords;
+      game.prefetchedWords = null;
+      game.prefetchPromise = null;
+    } else if (game.prefetchPromise) {
+      // Prefetch is in progress, wait for it
+      setState(GameStates.LOADING);
+      words = await game.prefetchPromise;
+      game.prefetchPromise = null;
+    } else {
+      // No prefetch, fetch now
+      setState(GameStates.LOADING);
+      words = await fetchWords(category);
+    }
+    
     game.words = words;
     game.selectedIndices = [];
     game.chosenIndex = null;
@@ -450,6 +472,11 @@ const renderTimer = () => {
   const node = templates.timer.content.cloneNode(true);
   render(node);
 
+  // Start prefetching words for the next round
+  if (game.round < game.totalRounds && !game.prefetchPromise && !game.prefetchedWords) {
+    game.prefetchPromise = fetchWords(game.category);
+  }
+
   const timerDisplay = $("#timerDisplay");
   const sneakDisplay = $("#sneakDisplay");
   const word = game.words[game.chosenIndex];
@@ -513,6 +540,17 @@ const endRound = (result) => {
 
   if (result === "success") {
     game.opponentTeam.score += 1;
+  }
+
+  // Store prefetched words if the promise resolved
+  if (game.prefetchPromise) {
+    game.prefetchPromise
+      .then((words) => {
+        game.prefetchedWords = words;
+      })
+      .catch((error) => {
+        console.error("Error in prefetch:", error);
+      });
   }
 
   game.save();
@@ -587,7 +625,7 @@ const renderScoreboard = () => {
     }
     game.round += 1;
     game.swapTeams();
-    await loadWordsAndGo();
+    await loadWordsAndGo(game.category);
   });
 
   $("#endGameBtn").addEventListener("click", () => {
