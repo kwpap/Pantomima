@@ -50,6 +50,7 @@ class Game {
     this.category = "random";
     this.prefetchedWords = null;
     this.prefetchPromise = null;
+    this.excludeHumans = false;
   }
 
   save() {
@@ -205,6 +206,71 @@ const isPlayable = (article) => {
   return true;
 };
 
+/**
+ * Filter out human biographies using Wikidata
+ * Makes a batch request to Wikidata to check if articles are about humans (Q5)
+ * @param {Array} articles - Array of article objects with wikibase_item property
+ * @returns {Promise<Array>} - Filtered array excluding human biographies
+ */
+const filterHumansViaWikidata = async (articles) => {
+  try {
+    // Extract Q-IDs from articles that have wikibase_item
+    const articlesWithQIds = articles.filter(article => article.wikibase_item);
+    
+    if (articlesWithQIds.length === 0) {
+      // No Q-IDs to check, return all articles
+      return articles;
+    }
+
+    const qIds = articlesWithQIds.map(article => article.wikibase_item).join('|');
+    
+    // Wikidata API call
+    const wikidataUrl = `https://www.wikidata.org/w/api.php?origin=*&action=wbgetentities&ids=${encodeURIComponent(qIds)}&props=claims&format=json`;
+    
+    const response = await fetch(wikidataUrl);
+    const data = await response.json();
+    
+    // Check each entity for P31 (instance of) containing Q5 (human)
+    const humanQIds = new Set();
+    
+    if (data.entities) {
+      Object.entries(data.entities).forEach(([qId, entity]) => {
+        // Check if entity has P31 claims (instance of)
+        if (entity.claims && entity.claims.P31) {
+          const instanceOfClaims = entity.claims.P31;
+          
+          // Check if any claim points to Q5 (human)
+          const isHuman = instanceOfClaims.some(claim => {
+            const value = claim.mainsnak?.datavalue?.value;
+            return value && value.id === 'Q5';
+          });
+          
+          if (isHuman) {
+            humanQIds.add(qId);
+          }
+        }
+      });
+    }
+    
+    // Filter out articles that are humans
+    const filtered = articles.filter(article => {
+      if (!article.wikibase_item) {
+        // Keep articles without Q-IDs (fail open)
+        return true;
+      }
+      return !humanQIds.has(article.wikibase_item);
+    });
+    
+    console.log(`Wikidata filter: ${articles.length} articles → ${filtered.length} non-human articles (removed ${humanQIds.size} humans)`);
+    
+    return filtered;
+  } catch (error) {
+    console.warn('Wikidata API error, failing open (keeping all words):', error);
+    // Fail open: return all articles if Wikidata check fails
+    return articles;
+  }
+};
+
 const fetchWords = async (category = "random") => {
   const validWords = [];
   const maxAttempts = 100; // Safety limit to prevent infinite loops
@@ -236,7 +302,7 @@ const fetchWords = async (category = "random") => {
 
     // Fetch extracts and images for all titles
     if (titles.length > 0) {
-      const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
+      const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageprops|pageimages|extracts&ppprop=wikibase_item&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
         titles.join("|")
       )}`;
       const extractsRes = await fetch(extractsAndImagesUrl);
@@ -247,10 +313,17 @@ const fetchWords = async (category = "random") => {
         title: page.title,
         extract: page.extract || "(No description available)",
         image: page.thumbnail?.source || null,
+        wikibase_item: page.pageprops?.wikibase_item || null,
       }));
 
       // Filter articles based on heuristic
-      const playableArticles = articles.filter(article => isPlayable(article));
+      let playableArticles = articles.filter(article => isPlayable(article));
+      
+      // Apply Wikidata human filter if enabled
+      if (game.excludeHumans) {
+        playableArticles = await filterHumansViaWikidata(playableArticles);
+      }
+      
       validWords.push(...playableArticles);
     }
 
@@ -361,6 +434,7 @@ const renderSetup = () => {
     const roundDuration = Number($("#roundDuration").value) || 90;
     const totalRounds = Number($("#totalRounds").value) || 6;
     const category = $("#categorySelect").value || "random";
+    const excludeHumans = $("#excludeHumansCheckbox").checked;
 
     game.teams = [
       { name: teamAName, color: teamAColor, score: 0, time: 0 },
@@ -375,6 +449,7 @@ const renderSetup = () => {
     game.chosenIndex = null;
     game.lastResult = null;
     game.category = category;
+    game.excludeHumans = excludeHumans;
     game.prefetchedWords = null;
     game.prefetchPromise = null;
 
