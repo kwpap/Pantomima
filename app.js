@@ -15,6 +15,15 @@ const GameStates = {
   LOADING: 8,
 };
 
+const COLOR_PALETTE = [
+  { name: "Blue", hex: "#4aa3ff" },
+  { name: "Red", hex: "#fd5151" },
+  { name: "Green", hex: "#e7913f" },
+  { name: "Purple", hex: "#b344ff" },
+  { name: "Lilac", hex: "#c8a2c8" },
+  { name: "Petrol", hex: "#0c8baa" },
+  { name: "Lavender", hex: "#71cac3" },
+];
 
 class Game {
   constructor() {
@@ -125,23 +134,44 @@ const stripHtml = (html) => {
   return tmp.textContent || tmp.innerText || "";
 };
 
-const fetchRandomArticles = async () => {
-  const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=10&rnnamespace=0`;
-  const randomRes = await fetch(randomUrl);
-  const randomData = await randomRes.json();
-  const titles = randomData.query.random.map((item) => item.title);
+const fetchWords = async (category = "random") => {
+  let titles = [];
 
-  const extractsUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=extracts&exintro=1&explaintext=1&titles=${encodeURIComponent(
+  if (category === "random") {
+    // Fetch random articles
+    const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=10&rnnamespace=0`;
+    const randomRes = await fetch(randomUrl);
+    const randomData = await randomRes.json();
+    titles = randomData.query.random.map((item) => item.title);
+  } else {
+    // Fetch from category
+    const categoryUrl = `${WIKI_API}?origin=*&action=query&format=json&list=categorymembers&cmtitle=${encodeURIComponent(
+      category
+    )}&cmlimit=50&cmnamespace=0`;
+    const categoryRes = await fetch(categoryUrl);
+    const categoryData = await categoryRes.json();
+    const members = categoryData.query.categorymembers || [];
+    
+    // Shuffle and pick top 10
+    const shuffled = members.sort(() => 0.5 - Math.random());
+    titles = shuffled.slice(0, 10).map((item) => item.title);
+  }
+
+  // Fetch extracts and images for the selected titles
+  const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageimages|extracts&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
     titles.join("|")
   )}`;
-  const extractsRes = await fetch(extractsUrl);
+  const extractsRes = await fetch(extractsAndImagesUrl);
   const extractsData = await extractsRes.json();
   const pages = extractsData.query.pages;
 
   const words = Object.values(pages).map((page) => ({
     title: page.title,
     extract: page.extract || "(No description available)",
+    image: page.thumbnail?.source || null,
   }));
+
+  console.log(`Loaded ${words.length} words from category: ${category}`, words);
 
   return words.sort(() => 0.5 - Math.random());
 };
@@ -205,13 +235,43 @@ const renderSetup = () => {
   const saved = Game.load();
   if (saved) resumeBlock.classList.remove("hidden");
 
+  let selectedTeamAColor = "#4aa3ff";
+  let selectedTeamBColor = "#ff6b6b";
+
+  const createColorOptions = (containerId, defaultColor, onSelect) => {
+    const container = $(containerId);
+    COLOR_PALETTE.forEach((color) => {
+      const btn = document.createElement("button");
+      btn.className = "color-btn";
+      btn.style.backgroundColor = color.hex;
+      btn.title = color.name;
+      btn.type = "button";
+      if (color.hex === defaultColor) btn.classList.add("selected");
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        document.querySelectorAll(`${containerId} .color-btn`).forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        onSelect(color.hex);
+      });
+      container.appendChild(btn);
+    });
+  };
+
+  createColorOptions("#teamAColorOptions", selectedTeamAColor, (color) => {
+    selectedTeamAColor = color;
+  });
+  createColorOptions("#teamBColorOptions", selectedTeamBColor, (color) => {
+    selectedTeamBColor = color;
+  });
+
   $("#startGameBtn").addEventListener("click", async () => {
     const teamAName = $("#teamAName").value.trim() || "Team A";
     const teamBName = $("#teamBName").value.trim() || "Team B";
-    const teamAColor = $("#teamAColor").value || "#4aa3ff";
-    const teamBColor = $("#teamBColor").value || "#ff6b6b";
+    const teamAColor = selectedTeamAColor;
+    const teamBColor = selectedTeamBColor;
     const roundDuration = Number($("#roundDuration").value) || 90;
     const totalRounds = Number($("#totalRounds").value) || 6;
+    const category = $("#categorySelect").value || "random";
 
     game.teams = [
       { name: teamAName, color: teamAColor, score: 0, time: 0 },
@@ -226,7 +286,7 @@ const renderSetup = () => {
     game.chosenIndex = null;
     game.lastResult = null;
 
-    await loadWordsAndGo();
+    await loadWordsAndGo(category);
   });
 
   $("#resumeBtn")?.addEventListener("click", () => {
@@ -249,16 +309,17 @@ const renderLoading = () => {
   render(node);
 };
 
-const loadWordsAndGo = async () => {
+const loadWordsAndGo = async (category = "random") => {
   setState(GameStates.LOADING);
   try {
-    const words = await fetchRandomArticles();
+    const words = await fetchWords(category);
     game.words = words;
     game.selectedIndices = [];
     game.chosenIndex = null;
     game.lastResult = null;
     setState(GameStates.SELECTION);
   } catch (error) {
+    console.error("Error fetching words:", error);
     showToast("Failed to fetch words. Try again.");
     setState(GameStates.SETUP);
   }

@@ -28,7 +28,7 @@
         </label>
         <label>
           Team A Color
-          <input id="teamAColor" type="color" value="#4aa3ff" />
+          <div id="teamAColorOptions" class="color-options"></div>
         </label>
         <label>
           Team B Name
@@ -36,7 +36,7 @@
         </label>
         <label>
           Team B Color
-          <input id="teamBColor" type="color" value="#ff6b6b" />
+          <div id="teamBColorOptions" class="color-options"></div>
         </label>
         <label>
           Round Duration (seconds)
@@ -45,6 +45,17 @@
         <label>
           Total Rounds
           <input id="totalRounds" type="number" min="1" max="20" value="6" />
+        </label>
+        <label>
+          Category
+          <select id="categorySelect">
+            <option value="random">Random</option>
+            <option value="Category:Ιστορία">History</option>
+            <option value="Category:Γεωγραφία">Geography</option>
+            <option value="Category:Επιστήμες">Science</option>
+            <option value="Category:Τέχνες">Arts/Cinema</option>
+            <option value="Category:Τεχνολογία">Technology</option>
+          </select>
         </label>
       </div>
       <div class="actions">

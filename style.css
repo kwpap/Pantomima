@@ -88,6 +88,14 @@ input {
   color: var(--text);
 }
 
+select {
+  background: #101010;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+
 .actions {
   display: flex;
   flex-direction: column;
@@ -278,4 +286,29 @@ button:disabled {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.color-options {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.color-btn {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.2s, border-color 0.2s;
+}
+
+.color-btn:hover {
+  transform: scale(1.05);
+}
+
+.color-btn.selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--text);
 }
