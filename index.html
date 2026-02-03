@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pantomima</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="app-header">
+      <h1>Pantomima</h1>
+      <div id="teamIndicator" class="team-indicator">Setup</div>
+    </header>
+
+    <section id="screenContainer" class="screen"></section>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
+  </main>
+
+  <template id="setupTemplate">
+    <div class="card">
+      <h2>Setup</h2>
+      <div class="grid">
+        <label>
+          Team A Name
+          <input id="teamAName" type="text" placeholder="Team A" />
+        </label>
+        <label>
+          Team A Color
+          <input id="teamAColor" type="color" value="#4aa3ff" />
+        </label>
+        <label>
+          Team B Name
+          <input id="teamBName" type="text" placeholder="Team B" />
+        </label>
+        <label>
+          Team B Color
+          <input id="teamBColor" type="color" value="#ff6b6b" />
+        </label>
+        <label>
+          Round Duration (seconds)
+          <input id="roundDuration" type="number" min="30" max="300" value="90" />
+        </label>
+        <label>
+          Total Rounds
+          <input id="totalRounds" type="number" min="1" max="20" value="6" />
+        </label>
+      </div>
+      <div class="actions">
+        <button id="startGameBtn" class="primary">Start Game</button>
+      </div>
+      <div id="resumeBlock" class="resume-block hidden">
+        <p>Found a saved game.</p>
+        <button id="resumeBtn" class="secondary">Resume Game</button>
+        <button id="discardBtn" class="ghost">Discard</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="selectionTemplate">
+    <div class="card">
+      <h2 id="selectionTitle"></h2>
+      <p class="muted">Select exactly 3 options for the opponent.</p>
+      <div id="optionsList" class="options"></div>
+      <div class="actions">
+        <button id="commitSelectionBtn" class="primary" disabled>Commit</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="choiceTemplate">
+    <div class="card">
+      <h2 id="choiceTitle"></h2>
+      <p class="muted">Pick 1 of the 3 highlighted options.</p>
+      <div id="choiceList" class="options"></div>
+      <div class="actions">
+        <button id="commitChoiceBtn" class="primary" disabled>Commit</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="briefingTemplate">
+    <div class="card">
+      <h2>Briefing</h2>
+      <div class="word" id="briefWord"></div>
+      <div class="excerpt" id="briefExcerpt"></div>
+      <div class="actions">
+        <button id="startRoundBtn" class="primary">Start Round</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="timerTemplate">
+    <div class="card">
+      <h2>Timer</h2>
+      <div id="timerDisplay" class="timer">00:00</div>
+      <div id="sneakDisplay" class="sneak hidden"></div>
+      <div class="controls">
+        <button id="foundBtn" class="success">Found It</button>
+        <button id="abortBtn" class="danger">Abort</button>
+        <button id="pauseBtn" class="secondary">Pause</button>
+        <button id="sneakBtn" class="ghost">Sneak Peek (Hold)</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="resultTemplate">
+    <div class="card">
+      <h2 id="resultTitle"></h2>
+      <p id="resultText" class="muted"></p>
+      <div id="resultActions" class="actions"></div>
+    </div>
+  </template>
+
+  <template id="scoreboardTemplate">
+    <div class="card">
+      <h2>Scoreboard</h2>
+      <div id="scoreSummary" class="score-summary"></div>
+      <div class="divider"></div>
+      <div id="roundBreakdown" class="muted"></div>
+      <div class="pass-message" id="passMessage"></div>
+      <div class="actions">
+        <button id="nextRoundBtn" class="primary">Next Round</button>
+        <button id="endGameBtn" class="ghost">End Game Early</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="finalTemplate">
+    <div class="card">
+      <h2>Final Score</h2>
+      <div id="finalSummary" class="score-summary"></div>
+      <div class="actions">
+        <button id="resetBtn" class="primary">New Game</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="loadingTemplate">
+    <div class="card center">
+      <div class="spinner"></div>
+      <p class="muted">Fetching words...</p>
+    </div>
+  </template>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <button id="closeModal" class="ghost close">Close</button>
+      <h3 id="modalTitle"></h3>
+      <p id="modalText" class="muted"></p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
