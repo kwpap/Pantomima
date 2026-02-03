@@ -15,6 +15,7 @@ const GameStates = {
   LOADING: 8,
 };
 
+
 class Game {
   constructor() {
     this.state = GameStates.SETUP;
