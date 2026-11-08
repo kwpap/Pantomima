@@ -49,13 +49,9 @@
         <label>
           Category
           <select id="categorySelect">
-            <option value="all">All</option>
-            <option value="random">Random</option>
-            <option value="Category:Ιστορία">History</option>
-            <option value="Category:Γεωγραφία">Geography</option>
-            <option value="Category:Επιστήμες">Science</option>
-            <option value="Category:Τέχνες">Arts/Cinema</option>
-            <option value="Category:Τεχνολογία">Technology</option>
+            <option value="random">Random (any article)</option>
+            <option value="all">All categories (mix)</option>
+            <!-- Topic categories are added from CATEGORIES in app.js -->
           </select>
         </label>
         <label class="checkbox-label">
@@ -100,6 +96,7 @@
     <div class="card">
       <h2>Briefing</h2>
       <div class="word" id="briefWord"></div>
+      <img id="briefImage" class="brief-image hidden" alt="" />
       <div class="excerpt" id="briefExcerpt"></div>
       <div class="actions">
         <button id="startRoundBtn" class="primary">Start Round</button>

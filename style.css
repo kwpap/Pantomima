@@ -191,6 +191,20 @@ button:disabled {
   font-size: 0.95rem;
   color: var(--muted);
   line-height: 1.5;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.brief-image {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  margin: 0 auto 12px;
+  border-radius: 8px;
+}
+
+.brief-image.hidden {
+  display: none;
 }
 
 .timer {

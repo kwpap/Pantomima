@@ -1,5 +1,12 @@
 const WIKI_API = "https://el.wikipedia.org/w/api.php";
+const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
 const STORAGE_KEY = "pantomima.gameState";
+
+const WORDS_PER_ROUND = 10;
+const PICKS_PER_ROUND = 3;
+// The extracts API returns at most 20 intro extracts per request.
+const EXTRACTS_BATCH = 20;
+const MAX_FETCH_ATTEMPTS = 15;
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -15,16 +22,34 @@ const GameStates = {
   LOADING: 8,
 };
 
+// Topic categories on Greek Wikipedia. "all" mixes these; "random" uses any article.
+const CATEGORIES = [
+  { value: "Κατηγορία:Ιστορία", label: "History" },
+  { value: "Κατηγορία:Γεωγραφία", label: "Geography" },
+  { value: "Κατηγορία:Επιστήμες", label: "Science" },
+  { value: "Κατηγορία:Τέχνες", label: "Arts/Cinema" },
+  { value: "Κατηγορία:Τεχνολογία", label: "Technology" },
+];
+
 const COLOR_PALETTE = [
   { name: "Blue", hex: "#4aa3ff" },
   { name: "Red", hex: "#fd5151" },
-  { name: "Green", hex: "#e7913f" },
+  { name: "Orange", hex: "#e7913f" },
   { name: "Purple", hex: "#b344ff" },
   { name: "Lilac", hex: "#c8a2c8" },
   { name: "Petrol", hex: "#0c8baa" },
-  { name: "Lavender", hex: "#71cac3" },
+  { name: "Teal", hex: "#71cac3" },
 ];
+const DEFAULT_TEAM_A_COLOR = COLOR_PALETTE[0].hex;
+const DEFAULT_TEAM_B_COLOR = COLOR_PALETTE[1].hex;
 
+// Older saves (before 2026-11-09) also stored these runtime-only fields.
+const LEGACY_RUNTIME_FIELDS = ["prefetchPromise", "prefetchedWords", "timerId"];
+
+/**
+ * All persistent game data. Every field must be JSON-serializable:
+ * runtime-only things (timer handle, prefetch promise) live outside this class.
+ */
 class Game {
   constructor() {
     this.state = GameStates.SETUP;
@@ -32,44 +57,51 @@ class Game {
     this.totalRounds = 6;
     this.roundDuration = 90;
     this.teams = [
-      { name: "Team A", color: "#4aa3ff", score: 0, time: 0 },
-      { name: "Team B", color: "#ff6b6b", score: 0, time: 0 },
+      { name: "Team A", color: DEFAULT_TEAM_A_COLOR, score: 0, time: 0 },
+      { name: "Team B", color: DEFAULT_TEAM_B_COLOR, score: 0, time: 0 },
     ];
     this.activeTeamIndex = 0;
     this.opponentTeamIndex = 1;
     this.words = [];
     this.selectedIndices = [];
     this.chosenIndex = null;
-    this.roundStart = null;
     this.elapsedThisRound = 0;
-    this.timerId = null;
     this.isPaused = false;
     this.timerRemaining = 0;
     this.endedEarly = false;
     this.lastResult = null;
     this.category = "random";
-    this.prefetchedWords = null;
-    this.prefetchPromise = null;
     this.excludeHumans = false;
   }
 
   save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this));
+    } catch (error) {
+      console.warn("Could not save game:", error);
+    }
   }
 
   static load() {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
     try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
       const data = JSON.parse(raw);
-      return Object.assign(new Game(), data);
+      LEGACY_RUNTIME_FIELDS.forEach((key) => delete data[key]);
+      const loaded = Object.assign(new Game(), data);
+      if (!Array.isArray(loaded.words) || !Array.isArray(loaded.teams)) return null;
+      return loaded;
     } catch {
       return null;
     }
   }
 
   clearSave() {
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Storage unavailable: nothing to clear.
+    }
   }
 
   get activeTeam() {
@@ -90,6 +122,10 @@ class Game {
 
 const game = new Game();
 
+// Runtime-only state (never saved).
+let timerId = null;
+let prefetch = null; // { words, promise } for the next round's words
+
 const screenContainer = $("#screenContainer");
 const teamIndicator = $("#teamIndicator");
 const toast = $("#toast");
@@ -109,10 +145,12 @@ const templates = {
   loading: $("#loadingTemplate"),
 };
 
+let toastTimeout = null;
 const showToast = (message) => {
   toast.textContent = message;
   toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 2500);
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => toast.classList.remove("show"), 2500);
 };
 
 const render = (node) => {
@@ -132,10 +170,47 @@ const formatTime = (seconds) => {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
-const stripHtml = (html) => {
-  const tmp = document.createElement("div");
-  tmp.innerHTML = html;
-  return tmp.textContent || tmp.innerText || "";
+/** Create an element with optional class and text (text is never parsed as HTML). */
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+/** Fisher–Yates shuffle. Returns a new array. */
+const shuffle = (items) => {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+};
+
+const chunk = (items, size) => {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+};
+
+/** Fetch a MediaWiki API URL and return its JSON, throwing on HTTP or API errors. */
+const fetchJson = async (baseUrl, params) => {
+  const url = new URL(baseUrl);
+  Object.entries({ origin: "*", format: "json", ...params }).forEach(([key, value]) =>
+    url.searchParams.set(key, value)
+  );
+  let res = await fetch(url);
+  if (res.status === 429) {
+    // Rate limited: wait once (max 5s) and retry.
+    const waitSeconds = Math.min(Number(res.headers.get("Retry-After")) || 2, 5);
+    await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+    res = await fetch(url);
+  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${url.host}`);
+  const data = await res.json();
+  if (data.error) throw new Error(`API error: ${data.error.info || data.error.code}`);
+  return data;
 };
 
 /**
@@ -214,128 +289,159 @@ const isPlayable = (article) => {
  */
 const filterHumansViaWikidata = async (articles) => {
   try {
-    // Extract Q-IDs from articles that have wikibase_item
-    const articlesWithQIds = articles.filter(article => article.wikibase_item);
-    
-    if (articlesWithQIds.length === 0) {
-      // No Q-IDs to check, return all articles
-      return articles;
-    }
+    const qIds = articles.map((article) => article.wikibase_item).filter(Boolean);
+    if (qIds.length === 0) return articles;
 
-    const qIds = articlesWithQIds.map(article => article.wikibase_item).join('|');
-    
-    // Wikidata API call
-    const wikidataUrl = `https://www.wikidata.org/w/api.php?origin=*&action=wbgetentities&ids=${encodeURIComponent(qIds)}&props=claims&format=json`;
-    
-    const response = await fetch(wikidataUrl);
-    const data = await response.json();
-    
-    // Check each entity for P31 (instance of) containing Q5 (human)
     const humanQIds = new Set();
-    
-    if (data.entities) {
-      Object.entries(data.entities).forEach(([qId, entity]) => {
-        // Check if entity has P31 claims (instance of)
-        if (entity.claims && entity.claims.P31) {
-          const instanceOfClaims = entity.claims.P31;
-          
-          // Check if any claim points to Q5 (human)
-          const isHuman = instanceOfClaims.some(claim => {
-            const value = claim.mainsnak?.datavalue?.value;
-            return value && value.id === 'Q5';
-          });
-          
-          if (isHuman) {
-            humanQIds.add(qId);
-          }
-        }
+    // wbgetentities accepts at most 50 ids per request.
+    for (const ids of chunk(qIds, 50)) {
+      const data = await fetchJson(WIKIDATA_API, {
+        action: "wbgetentities",
+        ids: ids.join("|"),
+        props: "claims",
+      });
+      Object.entries(data.entities || {}).forEach(([qId, entity]) => {
+        // P31 = "instance of", Q5 = "human"
+        const isHuman = (entity.claims?.P31 || []).some(
+          (claim) => claim.mainsnak?.datavalue?.value?.id === "Q5"
+        );
+        if (isHuman) humanQIds.add(qId);
       });
     }
-    
-    // Filter out articles that are humans
-    const filtered = articles.filter(article => {
-      if (!article.wikibase_item) {
-        // Keep articles without Q-IDs (fail open)
-        return true;
-      }
-      return !humanQIds.has(article.wikibase_item);
-    });
-    
+
+    // Keep articles without Q-IDs (fail open)
+    const filtered = articles.filter(
+      (article) => !article.wikibase_item || !humanQIds.has(article.wikibase_item)
+    );
     console.log(`Wikidata filter: ${articles.length} articles → ${filtered.length} non-human articles (removed ${humanQIds.size} humans)`);
-    
     return filtered;
   } catch (error) {
-    console.warn('Wikidata API error, failing open (keeping all words):', error);
-    // Fail open: return all articles if Wikidata check fails
+    console.warn("Wikidata API error, failing open (keeping all words):", error);
     return articles;
   }
 };
 
-const fetchWords = async (category = "random") => {
-  const validWords = [];
-  const maxAttempts = 100; // Safety limit to prevent infinite loops
-  let attempts = 0;
+/** Titles of random articles from anywhere on Greek Wikipedia. */
+const fetchRandomTitles = async (count) => {
+  const data = await fetchJson(WIKI_API, {
+    action: "query",
+    list: "random",
+    rnlimit: count,
+    rnnamespace: 0,
+  });
+  return data.query.random.map((item) => item.title);
+};
 
-  while (validWords.length < 10 && attempts < maxAttempts) {
-    let titles = [];
+/** Random article titles from one category tree, using CirrusSearch. */
+const searchCategoryTitles = async (category, count) => {
+  const name = category.replace(/^(Κατηγορία|Category):/, "");
+  const search = async (operator) => {
+    const data = await fetchJson(WIKI_API, {
+      action: "query",
+      list: "search",
+      srsearch: `${operator}:"${name}"`,
+      srsort: "random",
+      srnamespace: 0,
+      srlimit: count,
+      srprop: "",
+    });
+    return (data.query?.search || []).map((item) => item.title);
+  };
+  // deepcat searches the whole subcategory tree. It can be unavailable,
+  // so fall back to direct members only (incategory).
+  const titles = await search("deepcat");
+  return titles.length > 0 ? titles : search("incategory");
+};
 
-    if (category === "random" || category === "all") {
-      // Fetch random articles (fetch more than needed to account for filtering)
-      const batchSize = Math.min(20, 10 + (10 - validWords.length) * 2);
-      const randomUrl = `${WIKI_API}?origin=*&action=query&format=json&list=random&rnlimit=${batchSize}&rnnamespace=0`;
-      const randomRes = await fetch(randomUrl);
-      const randomData = await randomRes.json();
-      titles = randomData.query.random.map((item) => item.title);
-    } else {
-      // Fetch from category (fetch larger batch for filtering)
-      const categoryUrl = `${WIKI_API}?origin=*&action=query&format=json&list=categorymembers&cmtitle=${encodeURIComponent(
-        category
-      )}&cmlimit=50&cmnamespace=0`;
-      const categoryRes = await fetch(categoryUrl);
-      const categoryData = await categoryRes.json();
-      const members = categoryData.query.categorymembers || [];
-      
-      // Shuffle and get batch
-      const shuffled = members.sort(() => 0.5 - Math.random());
-      titles = shuffled.slice(0, 30).map((item) => item.title);
-    }
+/**
+ * Titles from a topic category, or from a mix of all topics for "all".
+ * Top-level categories hold few articles directly, so we search their whole tree.
+ */
+const fetchCategoryTitles = async (category, count) => {
+  if (category !== "all") return searchCategoryTitles(category, count);
+  // Mix two random topics per call to keep requests low.
+  const picks = shuffle(CATEGORIES).slice(0, 2);
+  const perTopic = Math.ceil(count / picks.length);
+  const results = await Promise.all(picks.map((c) => searchCategoryTitles(c.value, perTopic)));
+  return shuffle(results.flat());
+};
 
-    // Fetch extracts and images for all titles
-    if (titles.length > 0) {
-      const extractsAndImagesUrl = `${WIKI_API}?origin=*&action=query&format=json&prop=pageprops|pageimages|extracts&ppprop=wikibase_item&piprop=thumbnail&pithumbsize=200&exintro=1&explaintext=1&titles=${encodeURIComponent(
-        titles.join("|")
-      )}`;
-      const extractsRes = await fetch(extractsAndImagesUrl);
-      const extractsData = await extractsRes.json();
-      const pages = extractsData.query.pages;
+/** Load extract, thumbnail and Wikidata id for the given titles. */
+const fetchArticles = async (titles) => {
+  const articles = [];
+  for (const batch of chunk(titles, EXTRACTS_BATCH)) {
+    const data = await fetchJson(WIKI_API, {
+      action: "query",
+      prop: "pageprops|pageimages|extracts",
+      ppprop: "wikibase_item",
+      piprop: "thumbnail",
+      pithumbsize: 300,
+      exintro: 1,
+      explaintext: 1,
+      exlimit: "max",
+      redirects: 1,
+      titles: batch.join("|"),
+    });
+    Object.values(data.query?.pages || {})
+      .filter((page) => !("missing" in page) && page.ns === 0)
+      .forEach((page) =>
+        articles.push({
+          title: page.title,
+          extract: page.extract || "",
+          image: page.thumbnail?.source || null,
+          wikibase_item: page.pageprops?.wikibase_item || null,
+        })
+      );
+  }
+  return articles;
+};
 
-      const articles = Object.values(pages).map((page) => ({
-        title: page.title,
-        extract: page.extract || "(No description available)",
-        image: page.thumbnail?.source || null,
-        wikibase_item: page.pageprops?.wikibase_item || null,
-      }));
+/**
+ * Fetch playable words for one round.
+ * @param {string} category - "random", "all", or a CATEGORIES value
+ * @param {{ excludeHumans?: boolean }} options
+ * @returns {Promise<Array<{title, extract, image, wikibase_item}>>}
+ */
+const fetchWords = async (category = "random", { excludeHumans = false } = {}) => {
+  const found = new Map(); // title -> article (dedupes across attempts)
+  const seenTitles = new Set();
 
-      // Filter articles based on heuristic
-      let playableArticles = articles.filter(article => isPlayable(article));
-      
-      // Apply Wikidata human filter if enabled
-      if (game.excludeHumans) {
-        playableArticles = await filterHumansViaWikidata(playableArticles);
-      }
-      
-      validWords.push(...playableArticles);
-    }
+  for (let attempt = 0; attempt < MAX_FETCH_ATTEMPTS && found.size < WORDS_PER_ROUND; attempt++) {
+    const missing = WORDS_PER_ROUND - found.size;
+    const wanted = Math.min(EXTRACTS_BATCH, 10 + missing * 2);
 
-    attempts++;
+    const candidates = category === "random"
+      ? await fetchRandomTitles(wanted)
+      : await fetchCategoryTitles(category, wanted);
+    const titles = candidates.filter((title) => !seenTitles.has(title));
+    titles.forEach((title) => seenTitles.add(title));
+    if (titles.length === 0) continue;
+
+    let playable = (await fetchArticles(titles)).filter(isPlayable);
+    if (excludeHumans) playable = await filterHumansViaWikidata(playable);
+    playable.forEach((article) => {
+      if (!found.has(article.title)) found.set(article.title, article);
+    });
   }
 
-  // Take only the first 10 and shuffle
-  const finalWords = validWords.slice(0, 10).sort(() => 0.5 - Math.random());
+  const words = shuffle([...found.values()]).slice(0, WORDS_PER_ROUND);
+  console.log(`Loaded ${words.length} words from category: ${category}`, words);
+  if (words.length < PICKS_PER_ROUND) {
+    throw new Error(`Only found ${words.length} playable words`);
+  }
+  return words;
+};
 
-  console.log(`Loaded ${finalWords.length} words from category: ${category}`, finalWords);
-
-  return finalWords;
+/** Start fetching next round's words in the background. */
+const startPrefetch = () => {
+  const entry = { words: null };
+  entry.promise = fetchWords(game.category, { excludeHumans: game.excludeHumans })
+    .then((words) => (entry.words = words))
+    .catch((error) => {
+      console.warn("Prefetch failed, will fetch again when needed:", error);
+      return null;
+    });
+  prefetch = entry;
 };
 
 const showModal = (title, text) => {
@@ -353,14 +459,25 @@ modal.addEventListener("click", (event) => {
   if (event.target === modal) hideModal();
 });
 
-const setState = async (state) => {
+// States worth restoring after a reload.
+const SAVED_STATES = new Set([
+  GameStates.SELECTION,
+  GameStates.CHOICE,
+  GameStates.BRIEFING,
+  GameStates.TIMER,
+  GameStates.RESULT,
+  GameStates.SCOREBOARD,
+]);
+
+const setState = (state) => {
   game.state = state;
+  if (SAVED_STATES.has(state)) game.save();
   switch (state) {
     case GameStates.SETUP:
       renderSetup();
       break;
     case GameStates.SELECTION:
-      await renderSelection();
+      renderSelection();
       break;
     case GameStates.CHOICE:
       renderChoice();
@@ -393,25 +510,31 @@ const renderSetup = () => {
   const node = templates.setup.content.cloneNode(true);
   render(node);
 
+  const categorySelect = $("#categorySelect");
+  CATEGORIES.forEach(({ value, label }) => {
+    const option = el("option", null, label);
+    option.value = value;
+    categorySelect.appendChild(option);
+  });
+
   const resumeBlock = $("#resumeBlock");
   const saved = Game.load();
   if (saved) resumeBlock.classList.remove("hidden");
 
-  let selectedTeamAColor = "#4aa3ff";
-  let selectedTeamBColor = "#ff6b6b";
+  let selectedTeamAColor = DEFAULT_TEAM_A_COLOR;
+  let selectedTeamBColor = DEFAULT_TEAM_B_COLOR;
 
   const createColorOptions = (containerId, defaultColor, onSelect) => {
     const container = $(containerId);
     COLOR_PALETTE.forEach((color) => {
-      const btn = document.createElement("button");
-      btn.className = "color-btn";
+      const btn = el("button", "color-btn");
       btn.style.backgroundColor = color.hex;
       btn.title = color.name;
       btn.type = "button";
       if (color.hex === defaultColor) btn.classList.add("selected");
       btn.addEventListener("click", (e) => {
         e.preventDefault();
-        document.querySelectorAll(`${containerId} .color-btn`).forEach((b) => b.classList.remove("selected"));
+        container.querySelectorAll(".color-btn").forEach((b) => b.classList.remove("selected"));
         btn.classList.add("selected");
         onSelect(color.hex);
       });
@@ -426,40 +549,35 @@ const renderSetup = () => {
     selectedTeamBColor = color;
   });
 
-  $("#startGameBtn").addEventListener("click", async () => {
+  const startGameBtn = $("#startGameBtn");
+  startGameBtn.addEventListener("click", async () => {
+    startGameBtn.disabled = true;
     const teamAName = $("#teamAName").value.trim() || "Team A";
     const teamBName = $("#teamBName").value.trim() || "Team B";
-    const teamAColor = selectedTeamAColor;
-    const teamBColor = selectedTeamBColor;
     const roundDuration = Number($("#roundDuration").value) || 90;
     const totalRounds = Number($("#totalRounds").value) || 6;
-    const category = $("#categorySelect").value || "random";
-    const excludeHumans = $("#excludeHumansCheckbox").checked;
+    const category = categorySelect.value || "random";
 
-    game.teams = [
-      { name: teamAName, color: teamAColor, score: 0, time: 0 },
-      { name: teamBName, color: teamBColor, score: 0, time: 0 },
-    ];
-    game.roundDuration = roundDuration;
-    game.totalRounds = totalRounds;
-    game.round = 1;
-    game.activeTeamIndex = 0;
-    game.opponentTeamIndex = 1;
-    game.selectedIndices = [];
-    game.chosenIndex = null;
-    game.lastResult = null;
-    game.category = category;
-    game.excludeHumans = excludeHumans;
-    game.prefetchedWords = null;
-    game.prefetchPromise = null;
+    Object.assign(game, new Game(), {
+      teams: [
+        { name: teamAName, color: selectedTeamAColor, score: 0, time: 0 },
+        { name: teamBName, color: selectedTeamBColor, score: 0, time: 0 },
+      ],
+      roundDuration,
+      totalRounds,
+      category,
+      excludeHumans: $("#excludeHumansCheckbox").checked,
+    });
+    prefetch = null;
 
-    await loadWordsAndGo(category);
+    if (!(await loadWordsAndGo())) setState(GameStates.SETUP);
   });
 
   $("#resumeBtn")?.addEventListener("click", () => {
     const savedGame = Game.load();
     if (!savedGame) return;
     Object.assign(game, savedGame);
+    prefetch = null;
     setState(game.state);
   });
 
@@ -476,70 +594,67 @@ const renderLoading = () => {
   render(node);
 };
 
-const loadWordsAndGo = async (category = "random") => {
+/**
+ * Get words for a new round (prefetched if ready) and go to SELECTION.
+ * Returns false on failure so the caller can decide where to go back to.
+ */
+const loadWordsAndGo = async () => {
+  const pending = prefetch;
+  prefetch = null;
   try {
-    let words;
-    
-    // Check if words are already prefetched
-    if (game.prefetchedWords) {
-      words = game.prefetchedWords;
-      game.prefetchedWords = null;
-      game.prefetchPromise = null;
-    } else if (game.prefetchPromise) {
-      // Prefetch is in progress, wait for it
+    let words = pending?.words || null;
+    if (!words) {
       setState(GameStates.LOADING);
-      words = await game.prefetchPromise;
-      game.prefetchPromise = null;
-    } else {
-      // No prefetch, fetch now
-      setState(GameStates.LOADING);
-      words = await fetchWords(category);
+      if (pending) words = await pending.promise;
+      if (!words) words = await fetchWords(game.category, { excludeHumans: game.excludeHumans });
     }
-    
+
     game.words = words;
     game.selectedIndices = [];
     game.chosenIndex = null;
     game.lastResult = null;
     setState(GameStates.SELECTION);
+    return true;
   } catch (error) {
     console.error("Error fetching words:", error);
     showToast("Failed to fetch words. Try again.");
-    setState(GameStates.SETUP);
+    return false;
   }
 };
 
-const renderSelection = async () => {
+/** Build one word row (title + "?" button that opens the description). */
+const createOption = (word) => {
+  const option = el("div", "option");
+  option.appendChild(el("div", "title", word.title));
+  const info = el("button", "info", "?");
+  info.setAttribute("aria-label", "Show description");
+  info.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showModal(word.title, word.extract);
+  });
+  option.appendChild(info);
+  return option;
+};
+
+const renderSelection = () => {
   setTeamIndicator(`${game.activeTeam.name} selects`, game.activeTeam.color);
   const node = templates.selection.content.cloneNode(true);
   render(node);
 
+  // Each render starts with a clean selection (also after resume).
+  game.selectedIndices = [];
+
   const list = $("#optionsList");
-  $("#selectionTitle").textContent = `${game.activeTeam.name}: Pick 3`;
+  $("#selectionTitle").textContent = `${game.activeTeam.name}: Pick ${PICKS_PER_ROUND}`;
 
   game.words.forEach((word, index) => {
-    const option = document.createElement("div");
-    option.className = "option";
-    option.innerHTML = `
-      <div class="title">${word.title}</div>
-      <button class="info" aria-label="Show description">?</button>
-    `;
-
-    option.addEventListener("click", (event) => {
-      if (event.target.classList.contains("info")) return;
-      toggleSelection(option, index);
-    });
-
-    option.querySelector(".info").addEventListener("click", (event) => {
-      event.stopPropagation();
-      showModal(word.title, word.extract);
-    });
-
+    const option = createOption(word);
+    option.addEventListener("click", () => toggleSelection(option, index));
     list.appendChild(option);
   });
 
-  const commitBtn = $("#commitSelectionBtn");
-  commitBtn.addEventListener("click", () => {
-    if (game.selectedIndices.length !== 3) return;
+  $("#commitSelectionBtn").addEventListener("click", () => {
+    if (game.selectedIndices.length !== PICKS_PER_ROUND) return;
     setState(GameStates.CHOICE);
   });
 };
@@ -550,16 +665,15 @@ const toggleSelection = (option, index) => {
     game.selectedIndices.splice(idx, 1);
     option.classList.remove("highlight");
   } else {
-    if (game.selectedIndices.length >= 3) {
-      showToast("Select only 3.");
+    if (game.selectedIndices.length >= PICKS_PER_ROUND) {
+      showToast(`Select only ${PICKS_PER_ROUND}.`);
       return;
     }
     game.selectedIndices.push(index);
     option.classList.add("highlight");
   }
 
-  const commitBtn = $("#commitSelectionBtn");
-  commitBtn.disabled = game.selectedIndices.length !== 3;
+  $("#commitSelectionBtn").disabled = game.selectedIndices.length !== PICKS_PER_ROUND;
 };
 
 const renderChoice = () => {
@@ -567,35 +681,22 @@ const renderChoice = () => {
   const node = templates.choice.content.cloneNode(true);
   render(node);
 
+  game.chosenIndex = null;
+
   const list = $("#choiceList");
   $("#choiceTitle").textContent = `${game.opponentTeam.name}: Choose 1`;
 
   game.words.forEach((word, index) => {
-    const option = document.createElement("div");
+    const option = createOption(word);
     const isSelected = game.selectedIndices.includes(index);
-    option.className = `option ${isSelected ? "highlight" : "disabled"}`;
-    option.innerHTML = `
-      <div class="title">${word.title}</div>
-      <button class="info" aria-label="Show description">?</button>
-    `;
-
+    option.classList.add(isSelected ? "highlight" : "disabled");
     if (isSelected) {
-      option.addEventListener("click", (event) => {
-        if (event.target.classList.contains("info")) return;
-        chooseOption(option, index);
-      });
+      option.addEventListener("click", () => chooseOption(option, index));
     }
-
-    option.querySelector(".info").addEventListener("click", (event) => {
-      event.stopPropagation();
-      showModal(word.title, word.extract);
-    });
-
     list.appendChild(option);
   });
 
-  const commitBtn = $("#commitChoiceBtn");
-  commitBtn.addEventListener("click", () => {
+  $("#commitChoiceBtn").addEventListener("click", () => {
     if (game.chosenIndex === null) return;
     setState(GameStates.BRIEFING);
   });
@@ -617,12 +718,20 @@ const renderBriefing = () => {
 
   const word = game.words[game.chosenIndex];
   $("#briefWord").textContent = word.title;
+  $("#briefExcerpt").textContent = word.extract;
+
+  const image = $("#briefImage");
+  if (word.image) {
+    image.src = word.image;
+    image.alt = word.title;
+    image.classList.remove("hidden");
+    image.addEventListener("error", () => image.classList.add("hidden"));
+  }
 
   $("#startRoundBtn").addEventListener("click", () => {
     game.timerRemaining = game.roundDuration;
     game.isPaused = false;
     game.endedEarly = false;
-    game.roundStart = Date.now();
     setState(GameStates.TIMER);
   });
 };
@@ -633,14 +742,14 @@ const renderTimer = () => {
   render(node);
 
   // Start prefetching words for the next round
-  if (game.round < game.totalRounds && !game.prefetchPromise && !game.prefetchedWords) {
-    game.prefetchPromise = fetchWords(game.category);
-  }
+  if (game.round < game.totalRounds && !prefetch) startPrefetch();
 
   const timerDisplay = $("#timerDisplay");
   const sneakDisplay = $("#sneakDisplay");
+  const pauseBtn = $("#pauseBtn");
   const word = game.words[game.chosenIndex];
   sneakDisplay.textContent = word.title;
+  pauseBtn.textContent = game.isPaused ? "Resume" : "Pause";
 
   const updateTimer = () => {
     timerDisplay.textContent = formatTime(game.timerRemaining);
@@ -656,16 +765,19 @@ const renderTimer = () => {
       return;
     }
     updateTimer();
+    game.save(); // so a reload resumes with the right time left
   };
 
   updateTimer();
-  game.timerId = setInterval(tick, 1000);
+  clearInterval(timerId);
+  timerId = setInterval(tick, 1000);
 
   $("#foundBtn").addEventListener("click", () => endRound("success"));
   $("#abortBtn").addEventListener("click", () => endRound("fail"));
-  $("#pauseBtn").addEventListener("click", () => {
+  pauseBtn.addEventListener("click", () => {
     game.isPaused = !game.isPaused;
-    $("#pauseBtn").textContent = game.isPaused ? "Resume" : "Pause";
+    pauseBtn.textContent = game.isPaused ? "Resume" : "Pause";
+    game.save();
   });
 
   const sneakBtn = $("#sneakBtn");
@@ -690,8 +802,8 @@ const renderTimer = () => {
 };
 
 const endRound = (result) => {
-  clearInterval(game.timerId);
-  game.timerId = null;
+  clearInterval(timerId);
+  timerId = null;
 
   game.elapsedThisRound = game.roundDuration - game.timerRemaining;
   game.opponentTeam.time += game.elapsedThisRound;
@@ -702,18 +814,6 @@ const endRound = (result) => {
     game.opponentTeam.score += 1;
   }
 
-  // Store prefetched words if the promise resolved
-  if (game.prefetchPromise) {
-    game.prefetchPromise
-      .then((words) => {
-        game.prefetchedWords = words;
-      })
-      .catch((error) => {
-        console.error("Error in prefetch:", error);
-      });
-  }
-
-  game.save();
   setState(GameStates.RESULT);
 };
 
@@ -730,22 +830,16 @@ const renderResult = () => {
     resultTitle.textContent = "Time's Up!";
     resultText.textContent = "Decide the outcome:";
 
-    const foundBtn = document.createElement("button");
-    foundBtn.textContent = "Found It";
-    foundBtn.className = "success";
+    const foundBtn = el("button", "success", "Found It");
     foundBtn.addEventListener("click", () => {
       game.opponentTeam.score += 1;
       game.lastResult = "success";
-      game.save();
       setState(GameStates.SCOREBOARD);
     });
 
-    const failBtn = document.createElement("button");
-    failBtn.textContent = "Failed";
-    failBtn.className = "danger";
+    const failBtn = el("button", "danger", "Failed");
     failBtn.addEventListener("click", () => {
       game.lastResult = "fail";
-      game.save();
       setState(GameStates.SCOREBOARD);
     });
 
@@ -755,12 +849,20 @@ const renderResult = () => {
     resultTitle.textContent = game.lastResult === "success" ? "Success" : "Failed";
     resultText.textContent = `Round took ${formatTime(game.elapsedThisRound)}.`;
 
-    const continueBtn = document.createElement("button");
-    continueBtn.textContent = "Continue";
-    continueBtn.className = "primary";
+    const continueBtn = el("button", "primary", "Continue");
     continueBtn.addEventListener("click", () => setState(GameStates.SCOREBOARD));
     actions.appendChild(continueBtn);
   }
+};
+
+/** Fill a container with one line per team: "<name>: N points, mm:ss". */
+const renderTeamScores = (container) => {
+  container.replaceChildren();
+  game.teams.forEach((team) => {
+    const row = el("div");
+    row.append(el("strong", null, team.name), `: ${team.score} points, ${formatTime(team.time)}`);
+    container.appendChild(row);
+  });
 };
 
 const renderScoreboard = () => {
@@ -769,23 +871,27 @@ const renderScoreboard = () => {
   render(node);
 
   const summary = $("#scoreSummary");
-  summary.innerHTML = `
-    <div><strong>${game.teams[0].name}</strong>: ${game.teams[0].score} points, ${formatTime(game.teams[0].time)}</div>
-    <div><strong>${game.teams[1].name}</strong>: ${game.teams[1].score} points, ${formatTime(game.teams[1].time)}</div>
-    <div>Round ${game.round} / ${game.totalRounds}</div>
-  `;
+  renderTeamScores(summary);
+  summary.appendChild(el("div", null, `Round ${game.round} / ${game.totalRounds}`));
 
   $("#roundBreakdown").textContent = `Last round took ${formatTime(game.elapsedThisRound)}.`;
   $("#passMessage").textContent = `Pass phone to ${game.activeTeam.name}`;
 
-  $("#nextRoundBtn").addEventListener("click", async () => {
+  const nextRoundBtn = $("#nextRoundBtn");
+  nextRoundBtn.addEventListener("click", async () => {
     if (game.round >= game.totalRounds) {
       setState(GameStates.FINAL);
       return;
     }
+    nextRoundBtn.disabled = true;
     game.round += 1;
     game.swapTeams();
-    await loadWordsAndGo(game.category);
+    if (!(await loadWordsAndGo())) {
+      // Undo so the scoreboard is unchanged and "Next Round" can be retried.
+      game.round -= 1;
+      game.swapTeams();
+      setState(GameStates.SCOREBOARD);
+    }
   });
 
   $("#endGameBtn").addEventListener("click", () => {
@@ -798,11 +904,8 @@ const renderFinal = () => {
   const node = templates.final.content.cloneNode(true);
   render(node);
 
-  const summary = $("#finalSummary");
-  summary.innerHTML = `
-    <div><strong>${game.teams[0].name}</strong>: ${game.teams[0].score} points, ${formatTime(game.teams[0].time)}</div>
-    <div><strong>${game.teams[1].name}</strong>: ${game.teams[1].score} points, ${formatTime(game.teams[1].time)}</div>
-  `;
+  game.clearSave(); // the game is over, nothing to resume
+  renderTeamScores($("#finalSummary"));
 
   $("#resetBtn").addEventListener("click", () => {
     game.clearSave();
