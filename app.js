@@ -25,11 +25,11 @@ const GameStates = {
 
 // Topic categories on Greek Wikipedia. "all" mixes these; "random" uses any article.
 const CATEGORIES = [
-  { value: "Κατηγορία:Ιστορία", label: "History" },
-  { value: "Κατηγορία:Γεωγραφία", label: "Geography" },
-  { value: "Κατηγορία:Επιστήμες", label: "Science" },
-  { value: "Κατηγορία:Τέχνες", label: "Arts/Cinema" },
-  { value: "Κατηγορία:Τεχνολογία", label: "Technology" },
+  { value: "Κατηγορία:Ιστορία", labelKey: "wcat.history" },
+  { value: "Κατηγορία:Γεωγραφία", labelKey: "wcat.geography" },
+  { value: "Κατηγορία:Επιστήμες", labelKey: "wcat.science" },
+  { value: "Κατηγορία:Τέχνες", labelKey: "wcat.arts" },
+  { value: "Κατηγορία:Τεχνολογία", labelKey: "wcat.technology" },
 ];
 
 const COLOR_PALETTE = [
@@ -58,8 +58,8 @@ class Game {
     this.totalRounds = 6;
     this.roundDuration = 90;
     this.teams = [
-      { name: "Team A", color: DEFAULT_TEAM_A_COLOR, score: 0, time: 0 },
-      { name: "Team B", color: DEFAULT_TEAM_B_COLOR, score: 0, time: 0 },
+      { name: t("team.a"), color: DEFAULT_TEAM_A_COLOR, score: 0, time: 0 },
+      { name: t("team.b"), color: DEFAULT_TEAM_B_COLOR, score: 0, time: 0 },
     ];
     this.activeTeamIndex = 0;
     this.opponentTeamIndex = 1;
@@ -72,8 +72,13 @@ class Game {
     this.endedEarly = false;
     this.lastResult = null;
     this.mode = "wikipedia"; // key in WORD_SOURCES
+    // Wikipedia version settings
     this.category = "random";
     this.excludeHumans = false;
+    // Word Library version settings (empty list = all)
+    this.deckFile = DEFAULT_DECK;
+    this.libraryFilters = { categories: [], difficulties: [], noNames: false };
+    this.pointsByDifficulty = true;
   }
 
   save() {
@@ -157,6 +162,7 @@ const showToast = (message) => {
 };
 
 const render = (node) => {
+  applyTranslations(node);
   screenContainer.innerHTML = "";
   screenContainer.appendChild(node);
 };
@@ -179,16 +185,6 @@ const el = (tag, className, text) => {
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
-};
-
-/** Fisher–Yates shuffle. Returns a new array. */
-const shuffle = (items) => {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
 };
 
 const chunk = (items, size) => {
@@ -442,27 +438,71 @@ const fetchWords = async (category = "random", { excludeHumans = false } = {}) =
  */
 const WORD_SOURCES = {
   wikipedia: {
-    label: "Wikipedia",
-    description: "Live words from Greek Wikipedia, with categories.",
+    labelKey: "source.wikipedia.label",
+    descriptionKey: "source.wikipedia.desc",
     available: true,
     fetchWords: ({ category, excludeHumans }) => fetchWords(category, { excludeHumans }),
   },
   library: {
-    label: "Word Library",
-    description: "Coming soon.",
-    available: false,
-    fetchWords: async () => {
-      throw new Error("Word Library is not available yet");
+    labelKey: "source.library.label",
+    descriptionKey: "source.library.desc",
+    available: true,
+    fetchWords: async ({ deckFile, libraryFilters, excludeIds }) => {
+      const deck = await loadDeck(deckFile);
+      const { cards, reshuffled } = dealCards(deck, libraryFilters, WORDS_PER_ROUND, excludeIds);
+      if (reshuffled) showToast(t("lib.reshuffled"));
+      if (cards.length < PICKS_PER_ROUND) {
+        throw new Error(`Only ${cards.length} cards match the filters`);
+      }
+      return cards;
     },
   },
 };
+
+const isLibraryGame = () => game.mode === "library";
 
 /** Words for one round from the current game's version. */
 const getWords = () =>
   (WORD_SOURCES[game.mode] || WORD_SOURCES.wikipedia).fetchWords({
     category: game.category,
     excludeHumans: game.excludeHumans,
+    deckFile: game.deckFile,
+    libraryFilters: game.libraryFilters,
+    excludeIds: new Set(game.words.map((w) => w.id).filter(Boolean)),
   });
+
+/** Points the acting team gets for guessing the current card. */
+const roundPoints = () => {
+  const word = game.words[game.chosenIndex];
+  return isLibraryGame() && game.pointsByDifficulty && word?.points ? word.points : 1;
+};
+
+/**
+ * Library only: report the card at `index` (logged for the library repo)
+ * and replace it with a fresh card. Returns true if it was replaced.
+ */
+const reportAndReplaceCard = async (index) => {
+  const card = game.words[index];
+  try {
+    const deck = await loadDeck(game.deckFile);
+    reportCard(card, deck.file, deck.generatedAt);
+    const exclude = new Set(game.words.map((w) => w.id));
+    const [fresh] = dealCards(deck, game.libraryFilters, 1, exclude).cards;
+    if (!fresh) {
+      showToast(t("lib.reportedNoMore"));
+      return false;
+    }
+    game.words[index] = fresh;
+    markCardsPlayed([fresh.id]);
+    game.save();
+    showToast(t("lib.reportedReplaced"));
+    return true;
+  } catch (error) {
+    console.error("Could not replace card:", error);
+    showToast(t("lib.replaceFailed"));
+    return false;
+  }
+};
 
 /** Start fetching next round's words in the background. */
 const startPrefetch = () => {
@@ -476,9 +516,23 @@ const startPrefetch = () => {
   prefetch = entry;
 };
 
-const showModal = (title, text) => {
+const modalActions = $("#modalActions");
+
+/** Show the modal. `actions` = [{ label, className, onClick }] extra buttons. */
+const showModal = (title, text, actions = []) => {
   modalTitle.textContent = title;
   modalText.textContent = text;
+  modalActions.replaceChildren(
+    ...actions.map(({ label, className, onClick }) => {
+      const btn = el("button", className || "ghost", label);
+      btn.type = "button";
+      btn.addEventListener("click", () => {
+        hideModal();
+        onClick();
+      });
+      return btn;
+    })
+  );
   modal.classList.remove("hidden");
 };
 
@@ -546,13 +600,32 @@ const renderModeSelect = () => {
   const node = templates.mode.content.cloneNode(true);
   render(node);
 
+  // Language flags (Greek is the default). Choosing one redraws this screen.
+  const langSwitch = $("#langSwitch");
+  Object.entries(LANGUAGES).forEach(([code, lang]) => {
+    const btn = el("button", "flag-btn");
+    btn.type = "button";
+    btn.dataset.lang = code;
+    btn.title = lang.name;
+    btn.setAttribute("aria-label", lang.name);
+    btn.setAttribute("aria-pressed", String(code === getLanguage()));
+    btn.classList.toggle("selected", code === getLanguage());
+    btn.innerHTML = lang.flag; // static SVG from i18n.js
+    btn.addEventListener("click", () => {
+      if (code === getLanguage()) return;
+      setLanguage(code);
+      renderModeSelect();
+    });
+    langSwitch.appendChild(btn);
+  });
+
   const list = $("#modeList");
   Object.entries(WORD_SOURCES).forEach(([key, source]) => {
     const btn = el("button", "mode-btn");
     btn.type = "button";
     btn.dataset.mode = key;
     btn.disabled = !source.available;
-    btn.append(el("span", "mode-name", source.label), el("span", "mode-desc", source.description));
+    btn.append(el("span", "mode-name", t(source.labelKey)), el("span", "mode-desc", t(source.descriptionKey)));
     btn.addEventListener("click", () => {
       game.mode = key;
       setState(GameStates.SETUP);
@@ -574,27 +647,28 @@ const renderModeSelect = () => {
   $("#discardBtn").addEventListener("click", () => {
     game.clearSave();
     resumeBlock.classList.add("hidden");
-    showToast("Saved game discarded.");
+    showToast(t("resume.discarded"));
   });
 };
 
 const renderSetup = () => {
   const mode = WORD_SOURCES[game.mode] ? game.mode : "wikipedia";
   const source = WORD_SOURCES[mode];
-  setTeamIndicator(source.label);
+  setTeamIndicator(t(source.labelKey));
   const node = templates.setup.content.cloneNode(true);
   render(node);
 
-  $("#setupTitle").textContent = `Setup — ${source.label}`;
+  $("#setupTitle").textContent = t("setup.title", { mode: t(source.labelKey) });
   $("#changeModeBtn").addEventListener("click", () => setState(GameStates.MODE_SELECT));
 
   const categorySelect = $("#categorySelect");
-  CATEGORIES.forEach(({ value, label }) => {
-    const option = el("option", null, label);
+  CATEGORIES.forEach(({ value, labelKey }) => {
+    const option = el("option", null, t(labelKey));
     option.value = value;
     categorySelect.appendChild(option);
   });
   if (mode === "wikipedia") $("#wikipediaSettings").classList.remove("hidden");
+  const library = mode === "library" ? setupLibrarySettings() : null;
 
   let selectedTeamAColor = DEFAULT_TEAM_A_COLOR;
   let selectedTeamBColor = DEFAULT_TEAM_B_COLOR;
@@ -604,7 +678,7 @@ const renderSetup = () => {
     COLOR_PALETTE.forEach((color) => {
       const btn = el("button", "color-btn");
       btn.style.backgroundColor = color.hex;
-      btn.title = color.name;
+      btn.title = t(`color.${color.name}`);
       btn.type = "button";
       if (color.hex === defaultColor) btn.classList.add("selected");
       btn.addEventListener("click", (e) => {
@@ -627,8 +701,8 @@ const renderSetup = () => {
   const startGameBtn = $("#startGameBtn");
   startGameBtn.addEventListener("click", async () => {
     startGameBtn.disabled = true;
-    const teamAName = $("#teamAName").value.trim() || "Team A";
-    const teamBName = $("#teamBName").value.trim() || "Team B";
+    const teamAName = $("#teamAName").value.trim() || t("team.a");
+    const teamBName = $("#teamBName").value.trim() || t("team.b");
     const roundDuration = Number($("#roundDuration").value) || 90;
     const totalRounds = Number($("#totalRounds").value) || 6;
     const category = categorySelect.value || "random";
@@ -643,15 +717,162 @@ const renderSetup = () => {
       mode,
       category,
       excludeHumans: $("#excludeHumansCheckbox").checked,
+      ...(library ? library.getSettings() : {}),
     });
+    if (library) writeJson(LIBRARY_SETTINGS_KEY, library.getSettings());
     prefetch = null;
 
     if (!(await loadWordsAndGo())) setState(GameStates.SETUP);
   });
 };
 
+const LIBRARY_SETTINGS_KEY = "pantomima.library.settings";
+
+/**
+ * Fill the Word Library part of the setup screen: deck choice, filters, card count,
+ * played history and reported cards. Returns { getSettings } for starting the game.
+ */
+const setupLibrarySettings = () => {
+  $("#librarySettings").classList.remove("hidden");
+  const startGameBtn = $("#startGameBtn");
+  const saved = { ...new Game(), ...readJson(LIBRARY_SETTINGS_KEY, {}) };
+  const savedFilters = { categories: [], difficulties: [], noNames: false, ...saved.libraryFilters };
+
+  const deckSelect = $("#deckSelect");
+  DECKS.forEach((d) => {
+    const option = el("option", null, deckLabel(d));
+    option.value = d.file;
+    deckSelect.appendChild(option);
+  });
+  deckSelect.value = DECKS.some((d) => d.file === saved.deckFile) ? saved.deckFile : DEFAULT_DECK;
+  $("#noNamesCheckbox").checked = savedFilters.noNames === true;
+  $("#difficultyPointsCheckbox").checked = saved.pointsByDifficulty !== false;
+
+  const categoryBox = $("#categoryFilters");
+  const difficultyBox = $("#difficultyFilters");
+  const deckCount = $("#deckCount");
+  let deck = null;
+
+  // One checkbox chip per value; checked if the saved list is empty ("all") or includes it.
+  const fillChips = (box, values, savedList, describe) => {
+    const keep = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
+    const hadChips = box.children.length > 0;
+    box.replaceChildren();
+    values.forEach((value) => {
+      const { text, color } = describe(value);
+      const chip = el("label", "chip");
+      if (color) chip.style.setProperty("--chip-color", color);
+      const input = el("input");
+      input.type = "checkbox";
+      input.value = value;
+      input.checked = hadChips ? keep.has(value) || !box.dataset.known?.split("|").includes(value)
+        : savedList.length === 0 || savedList.includes(value);
+      input.addEventListener("change", updateCount);
+      chip.append(input, text);
+      box.appendChild(chip);
+    });
+    box.dataset.known = values.join("|");
+  };
+
+  // Empty list = all values (so new values in a regenerated deck are included).
+  const checkedValues = (box) => {
+    const inputs = [...box.querySelectorAll("input")];
+    const checked = inputs.filter((i) => i.checked).map((i) => i.value);
+    return { list: checked.length === inputs.length ? [] : checked, none: checked.length === 0 };
+  };
+
+  const getSettings = () => ({
+    deckFile: deckSelect.value,
+    libraryFilters: {
+      categories: checkedValues(categoryBox).list,
+      difficulties: checkedValues(difficultyBox).list,
+      noNames: $("#noNamesCheckbox").checked,
+    },
+    pointsByDifficulty: $("#difficultyPointsCheckbox").checked,
+  });
+
+  function updateCount() {
+    if (!deck) return;
+    const nothingChecked = checkedValues(categoryBox).none || checkedValues(difficultyBox).none;
+    const { total, unplayed } = nothingChecked ? { total: 0, unplayed: 0 }
+      : countCards(deck, getSettings().libraryFilters);
+    deckCount.textContent = t("lib.count", { total: formatNumber(total), unplayed: formatNumber(unplayed) });
+    const tooFew = total < PICKS_PER_ROUND;
+    deckCount.classList.toggle("warn", tooFew);
+    if (tooFew) deckCount.textContent += t("lib.tooFew", { n: PICKS_PER_ROUND });
+    startGameBtn.disabled = tooFew;
+  }
+
+  const showDeck = async () => {
+    deck = null;
+    startGameBtn.disabled = true;
+    deckCount.classList.remove("warn");
+    deckCount.textContent = t("lib.loading");
+    const file = deckSelect.value;
+    try {
+      const loaded = await loadDeck(file);
+      if (deckSelect.value !== file) return; // changed again while loading
+      deck = loaded;
+      fillChips(categoryBox, deck.categories, savedFilters.categories, (value) => {
+        const info = categoryInfo(value);
+        return { text: `${info.icon} ${info.label}`, color: info.color };
+      });
+      fillChips(difficultyBox, deck.difficulties, savedFilters.difficulties, (value) => ({
+        text: difficultyInfo(value).label,
+      }));
+      updateCount();
+    } catch (error) {
+      console.error("Could not load deck:", error);
+      deckCount.classList.add("warn");
+      deckCount.textContent = location.protocol === "file:"
+        ? t("lib.loadFailedFile")
+        : t("lib.loadFailed");
+    }
+  };
+
+  deckSelect.addEventListener("change", showDeck);
+  $("#noNamesCheckbox").addEventListener("change", updateCount);
+
+  // Played history
+  $("#resetPlayedBtn").addEventListener("click", () => {
+    if (!confirm(t("lib.resetConfirm"))) return;
+    resetPlayedHistory();
+    updateCount();
+    showToast(t("lib.historyCleared"));
+  });
+
+  // Reported cards (to send back to the library repo)
+  const reportedInfo = $("#reportedInfo");
+  const downloadBtn = $("#downloadReportedBtn");
+  const clearBtn = $("#clearReportedBtn");
+  const updateReported = () => {
+    const n = getReportedCards().length;
+    reportedInfo.textContent = n ? t("lib.reportedCount", { n }) : "";
+    downloadBtn.classList.toggle("hidden", n === 0);
+    clearBtn.classList.toggle("hidden", n === 0);
+  };
+  downloadBtn.addEventListener("click", () => {
+    const blob = new Blob([exportReportedCards()], { type: "application/json" });
+    const link = el("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `pantomima-reported-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
+  clearBtn.addEventListener("click", () => {
+    if (!confirm(t("lib.clearConfirm"))) return;
+    clearReportedCards();
+    updateReported();
+    updateCount();
+  });
+  updateReported();
+
+  showDeck();
+  return { getSettings };
+};
+
 const renderLoading = () => {
-  setTeamIndicator("Loading...");
+  setTeamIndicator(t("loading.indicator"));
   const node = templates.loading.content.cloneNode(true);
   render(node);
 };
@@ -679,41 +900,93 @@ const loadWordsAndGo = async () => {
     return true;
   } catch (error) {
     console.error("Error fetching words:", error);
-    showToast("Failed to fetch words. Try again.");
+    showToast(t("fetchFailed"));
     return false;
   }
 };
 
-/** Build one word row (title + "?" button that opens the description). */
-const createOption = (word) => {
+/** Badges for a library card: category, difficulty (+points), English notice. */
+const createCardMeta = (word) => {
+  const meta = el("div", "card-meta");
+  if (!word.category) return meta; // Wikipedia words have no metadata
+  const cat = categoryInfo(word.category);
+  const catBadge = el("span", "badge", `${cat.icon} ${cat.label}`);
+  catBadge.style.setProperty("--badge-color", cat.color);
+  meta.appendChild(catBadge);
+  if (word.difficulty) {
+    const diff = difficultyInfo(word.difficulty);
+    const pts = game.pointsByDifficulty ? ` · ${t("lib.pointsShort", { n: word.points })}` : "";
+    meta.appendChild(el("span", "badge", `${diff.label}${pts}`));
+  }
+  if (word.latin) meta.appendChild(el("span", "badge latin", t("lib.latin")));
+  return meta;
+};
+
+/**
+ * Build one word row (title + "?" button).
+ * `onReplaced` (library only): if given, the "?" dialog offers "report & replace"
+ * and this is called after the card at `index` was replaced.
+ */
+const createOption = (word, index, onReplaced) => {
   const option = el("div", "option");
-  option.appendChild(el("div", "title", word.title));
+  const main = el("div", "title");
+  main.appendChild(el("div", null, word.title));
+  if (word.category) main.appendChild(createCardMeta(word));
+  option.appendChild(main);
+
   const info = el("button", "info", "?");
-  info.setAttribute("aria-label", "Show description");
+  info.setAttribute("aria-label", t("info.aria"));
   info.addEventListener("click", (event) => {
     event.stopPropagation();
-    showModal(word.title, word.extract);
+    if (!isLibraryGame()) {
+      showModal(word.title, word.extract);
+      return;
+    }
+    const text = word.hint ? t("lib.hintPrefix", { hint: word.hint }) : "";
+    const actions = onReplaced
+      ? [{
+          label: t("lib.reportReplace"),
+          onClick: async () => {
+            if (await reportAndReplaceCard(index)) onReplaced();
+          },
+        }]
+      : [];
+    showModal(word.title, text, actions);
   });
   option.appendChild(info);
   return option;
 };
 
 const renderSelection = () => {
-  setTeamIndicator(`${game.activeTeam.name} selects`, game.activeTeam.color);
+  setTeamIndicator(t("selection.indicator", { team: game.activeTeam.name }), game.activeTeam.color);
   const node = templates.selection.content.cloneNode(true);
   render(node);
 
   // Each render starts with a clean selection (also after resume).
   game.selectedIndices = [];
 
-  const list = $("#optionsList");
-  $("#selectionTitle").textContent = `${game.activeTeam.name}: Pick ${PICKS_PER_ROUND}`;
+  // Library: cards count as played once they are shown (no repeats across sessions).
+  if (isLibraryGame()) markCardsPlayed(game.words.map((w) => w.id));
 
-  game.words.forEach((word, index) => {
-    const option = createOption(word);
-    option.addEventListener("click", () => toggleSelection(option, index));
-    list.appendChild(option);
-  });
+  const list = $("#optionsList");
+  $("#selectionTitle").textContent = t("selection.title", { team: game.activeTeam.name, n: PICKS_PER_ROUND });
+  $("#selectionHelp").textContent = t("selection.help", { n: PICKS_PER_ROUND });
+
+  const drawList = () => {
+    list.replaceChildren();
+    game.words.forEach((word, index) => {
+      const option = createOption(word, index, isLibraryGame() ? () => {
+        // The replaced card is a new card: drop it from the selection.
+        game.selectedIndices = game.selectedIndices.filter((i) => i !== index);
+        $("#commitSelectionBtn").disabled = game.selectedIndices.length !== PICKS_PER_ROUND;
+        drawList();
+      } : null);
+      if (game.selectedIndices.includes(index)) option.classList.add("highlight");
+      option.addEventListener("click", () => toggleSelection(option, index));
+      list.appendChild(option);
+    });
+  };
+  drawList();
 
   $("#commitSelectionBtn").addEventListener("click", () => {
     if (game.selectedIndices.length !== PICKS_PER_ROUND) return;
@@ -728,7 +1001,7 @@ const toggleSelection = (option, index) => {
     option.classList.remove("highlight");
   } else {
     if (game.selectedIndices.length >= PICKS_PER_ROUND) {
-      showToast(`Select only ${PICKS_PER_ROUND}.`);
+      showToast(t("selection.onlyN", { n: PICKS_PER_ROUND }));
       return;
     }
     game.selectedIndices.push(index);
@@ -739,17 +1012,18 @@ const toggleSelection = (option, index) => {
 };
 
 const renderChoice = () => {
-  setTeamIndicator(`${game.opponentTeam.name} chooses`, game.opponentTeam.color);
+  setTeamIndicator(t("choice.indicator", { team: game.opponentTeam.name }), game.opponentTeam.color);
   const node = templates.choice.content.cloneNode(true);
   render(node);
 
   game.chosenIndex = null;
 
   const list = $("#choiceList");
-  $("#choiceTitle").textContent = `${game.opponentTeam.name}: Choose 1`;
+  $("#choiceTitle").textContent = t("choice.title", { team: game.opponentTeam.name });
+  $("#choiceHelp").textContent = t("choice.help", { n: PICKS_PER_ROUND });
 
   game.words.forEach((word, index) => {
-    const option = createOption(word);
+    const option = createOption(word, index);
     const isSelected = game.selectedIndices.includes(index);
     option.classList.add(isSelected ? "highlight" : "disabled");
     if (isSelected) {
@@ -774,13 +1048,37 @@ const chooseOption = (option, index) => {
 };
 
 const renderBriefing = () => {
-  setTeamIndicator(`${game.opponentTeam.name} plays`, game.opponentTeam.color);
+  setTeamIndicator(t("briefing.indicator", { team: game.opponentTeam.name }), game.opponentTeam.color);
   const node = templates.briefing.content.cloneNode(true);
   render(node);
 
   const word = game.words[game.chosenIndex];
+  $("#briefMeta").replaceWith(createCardMeta(word));
   $("#briefWord").textContent = word.title;
-  $("#briefExcerpt").textContent = word.extract;
+  $("#briefLatin").classList.toggle("hidden", !word.latin);
+
+  const excerpt = $("#briefExcerpt");
+  excerpt.textContent = word.extract;
+
+  // Library: the hint is hidden until the actor asks for it.
+  if (word.hint) {
+    const hintBtn = $("#hintBtn");
+    hintBtn.classList.remove("hidden");
+    hintBtn.addEventListener("click", () => {
+      excerpt.textContent = word.hint;
+      hintBtn.classList.add("hidden");
+    });
+  }
+
+  if (isLibraryGame()) {
+    const reportBtn = $("#reportCardBtn");
+    reportBtn.classList.remove("hidden");
+    reportBtn.addEventListener("click", async () => {
+      reportBtn.disabled = true;
+      if (await reportAndReplaceCard(game.chosenIndex)) renderBriefing();
+      else reportBtn.disabled = false;
+    });
+  }
 
   const image = $("#briefImage");
   if (word.image) {
@@ -799,7 +1097,7 @@ const renderBriefing = () => {
 };
 
 const renderTimer = () => {
-  setTeamIndicator(`${game.opponentTeam.name} acting`, game.opponentTeam.color);
+  setTeamIndicator(t("timer.indicator", { team: game.opponentTeam.name }), game.opponentTeam.color);
   const node = templates.timer.content.cloneNode(true);
   render(node);
 
@@ -810,8 +1108,9 @@ const renderTimer = () => {
   const sneakDisplay = $("#sneakDisplay");
   const pauseBtn = $("#pauseBtn");
   const word = game.words[game.chosenIndex];
-  sneakDisplay.textContent = word.title;
-  pauseBtn.textContent = game.isPaused ? "Resume" : "Pause";
+  $("#sneakWord").textContent = word.title;
+  $("#sneakLatin").classList.toggle("hidden", !word.latin);
+  pauseBtn.textContent = game.isPaused ? t("timer.resume") : t("timer.pause");
 
   const updateTimer = () => {
     timerDisplay.textContent = formatTime(game.timerRemaining);
@@ -838,7 +1137,7 @@ const renderTimer = () => {
   $("#abortBtn").addEventListener("click", () => endRound("fail"));
   pauseBtn.addEventListener("click", () => {
     game.isPaused = !game.isPaused;
-    pauseBtn.textContent = game.isPaused ? "Resume" : "Pause";
+    pauseBtn.textContent = game.isPaused ? t("timer.resume") : t("timer.pause");
     game.save();
   });
 
@@ -873,7 +1172,7 @@ const endRound = (result) => {
   game.lastResult = result;
 
   if (result === "success") {
-    game.opponentTeam.score += 1;
+    game.opponentTeam.score += roundPoints();
   }
 
   setState(GameStates.RESULT);
@@ -888,18 +1187,18 @@ const renderResult = () => {
   const actions = $("#resultActions");
 
   if (!game.endedEarly && game.lastResult === "timeout") {
-    setTeamIndicator("Time's Up!", game.opponentTeam.color);
-    resultTitle.textContent = "Time's Up!";
-    resultText.textContent = "Decide the outcome:";
+    setTeamIndicator(t("result.timeUp"), game.opponentTeam.color);
+    resultTitle.textContent = t("result.timeUp");
+    resultText.textContent = t("result.decide");
 
-    const foundBtn = el("button", "success", "Found It");
+    const foundBtn = el("button", "success", t("result.found"));
     foundBtn.addEventListener("click", () => {
-      game.opponentTeam.score += 1;
+      game.opponentTeam.score += roundPoints();
       game.lastResult = "success";
       setState(GameStates.SCOREBOARD);
     });
 
-    const failBtn = el("button", "danger", "Failed");
+    const failBtn = el("button", "danger", t("result.notFound"));
     failBtn.addEventListener("click", () => {
       game.lastResult = "fail";
       setState(GameStates.SCOREBOARD);
@@ -907,11 +1206,14 @@ const renderResult = () => {
 
     actions.append(foundBtn, failBtn);
   } else {
-    setTeamIndicator("Round Complete", game.opponentTeam.color);
-    resultTitle.textContent = game.lastResult === "success" ? "Success" : "Failed";
-    resultText.textContent = `Round took ${formatTime(game.elapsedThisRound)}.`;
+    setTeamIndicator(t("result.roundComplete"), game.opponentTeam.color);
+    const points = roundPoints();
+    resultTitle.textContent = game.lastResult === "success"
+      ? t("result.success", { n: points })
+      : t("result.failed");
+    resultText.textContent = t("result.took", { time: formatTime(game.elapsedThisRound) });
 
-    const continueBtn = el("button", "primary", "Continue");
+    const continueBtn = el("button", "primary", t("continue"));
     continueBtn.addEventListener("click", () => setState(GameStates.SCOREBOARD));
     actions.appendChild(continueBtn);
   }
@@ -922,22 +1224,22 @@ const renderTeamScores = (container) => {
   container.replaceChildren();
   game.teams.forEach((team) => {
     const row = el("div");
-    row.append(el("strong", null, team.name), `: ${team.score} points, ${formatTime(team.time)}`);
+    row.append(el("strong", null, team.name), t("score.row", { n: team.score, time: formatTime(team.time) }));
     container.appendChild(row);
   });
 };
 
 const renderScoreboard = () => {
-  setTeamIndicator("Scoreboard", game.activeTeam.color);
+  setTeamIndicator(t("score.indicator"), game.activeTeam.color);
   const node = templates.scoreboard.content.cloneNode(true);
   render(node);
 
   const summary = $("#scoreSummary");
   renderTeamScores(summary);
-  summary.appendChild(el("div", null, `Round ${game.round} / ${game.totalRounds}`));
+  summary.appendChild(el("div", null, t("score.round", { round: game.round, total: game.totalRounds })));
 
-  $("#roundBreakdown").textContent = `Last round took ${formatTime(game.elapsedThisRound)}.`;
-  $("#passMessage").textContent = `Pass phone to ${game.activeTeam.name}`;
+  $("#roundBreakdown").textContent = t("score.lastRound", { time: formatTime(game.elapsedThisRound) });
+  $("#passMessage").textContent = t("score.pass", { team: game.activeTeam.name });
 
   const nextRoundBtn = $("#nextRoundBtn");
   nextRoundBtn.addEventListener("click", async () => {
@@ -962,7 +1264,7 @@ const renderScoreboard = () => {
 };
 
 const renderFinal = () => {
-  setTeamIndicator("Game Over");
+  setTeamIndicator(t("final.indicator"));
   const node = templates.final.content.cloneNode(true);
   render(node);
 

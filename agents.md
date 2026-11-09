@@ -12,20 +12,23 @@ A two-team **charades (παντομίμα)** game for one shared phone. The game
 - **Wikipedia** — words from Greek Wikipedia at runtime, so nobody is at a
   disadvantage for not knowing Greek TV / pop culture (see README). The user
   likes this version: it must stay.
-- **Word Library** — placeholder ("Coming soon", disabled) for the new library
-  the user is preparing.
+- **Word Library** — curated card decks from the user's other repo
+  `pantomima_library_creator` (copied into `decks/`). See section 6.
 
-- Pure static site: `index.html` + `app.js` + `style.css`. No build step, no
-  package.json, no dependencies, no tests.
-- UI text is English; game content (words, excerpts) is Greek. `<html lang="el">`.
+- Pure static site: `index.html` + `i18n.js` + `library.js` + `app.js` +
+  `style.css` + `decks/*.json`. No build step, no package.json, no
+  dependencies, no tests in the repo. Script order: i18n → library → app.
+- **UI in two languages**: Greek (default) and English, chosen with two flag
+  buttons on the first screen, remembered in `pantomima.lang`. Game content
+  (Wikipedia words, deck cards) is always Greek.
 - Mobile-first, dark theme, max width 480px.
-- **Planned:** a new library is coming (as of 2026-11-09). It will be a
-  second version next to Wikipedia, not a replacement. See section 6.
+
 
 ### Run it
-Open `index.html` in a browser, or serve the folder (better, avoids file://
-quirks): `npx serve .` or `python -m http.server 8000`.
-Needs internet (Wikipedia + Wikidata APIs, CORS via `origin=*`).
+Serve the folder: `python -m http.server 8000` (or `npx serve .`), open
+http://localhost:8000. **The Word Library needs a server** (it `fetch`es
+`decks/*.json`, which browsers block on `file://`; setup shows a message).
+The Wikipedia version also works from `file://` but needs internet.
 
 ---
 
@@ -74,8 +77,12 @@ while held (mouse + touch handlers).
 | `fetchRandomTitles` / `searchCategoryTitles` / `fetchCategoryTitles` | Title sources. Categories use CirrusSearch `deepcat:"X"` with `srsort=random` (whole subcategory tree), falling back to `incategory:`. `"all"` = 2 random topics per call |
 | `fetchArticles(titles)` | extract + thumbnail + Wikidata id, in batches of 20 (API limit for intro extracts) |
 | `fetchWords(category, { excludeHumans })` | Wikipedia only: loops until 10 unique playable words; throws if fewer than 3 |
-| `WORD_SOURCES` | Registry of game versions: `{ label, description, available, fetchWords(options) }`. Keys: `wikipedia`, `library` (disabled placeholder). The first screen is built from it |
+| `WORD_SOURCES` | Registry of game versions: `{ label, description, available, fetchWords(options) }`. Keys: `wikipedia`, `library`. The first screen is built from it |
 | `getWords()` | Words for the current `game.mode`. **All word fetching goes through this** |
+| `roundPoints()` | 1, or the card's 1/2/3 points (library + "Πόντοι ανά δυσκολία") |
+| `reportAndReplaceCard(index)` | Library: log card as reported, swap in a fresh card |
+| `createCardMeta(word)` / `createOption(word, index, onReplaced)` | Card badges (category, difficulty, "Στα αγγλικά!"); word row with "?" dialog (hint + report, report only on SELECTION) |
+| `setupLibrarySettings()` | Library part of setup: deck, category/difficulty chips, Χωρίς ονόματα, points, live card count, history reset, reported export. Remembers settings in `pantomima.library.settings` |
 | `startPrefetch()` | Background `getWords()` for the next round, stored in `prefetch` |
 | `renderModeSelect()` | First screen: version buttons + Resume/Discard |
 | `setState` + `renderX` per screen | `setState` also saves for resumable states (SELECTION…SCOREBOARD) |
@@ -89,8 +96,17 @@ runs so the next SELECTION is usually instant.
 **Save/resume:** saved on every resumable state change and every timer tick, so
 a reload resumes on the same screen (timer included). Cleared on FINAL.
 
-**Word object shape:** `{ title, extract, image, wikibase_item }`. A new source
-needs at least `title` and `extract` (`image` is optional, shown on briefing).
+**Word object shape:** `{ title, extract, image, wikibase_item }` (Wikipedia) or
+`{ id, title, extract: "", hint, image, category, difficulty, latin, hasName, points }`
+(library, made by `normalizeCard`). A new source needs at least `title`.
+
+### `library.js` (no DOM)
+`shuffle`, `DECKS` (file list for the deck picker), `CARD_CATEGORIES` /
+`CARD_DIFFICULTIES` (Greek labels, icons, colours, points), `loadDeck(file)`
+(cached; derives categories/difficulties from the data), `normalizeCard`,
+`filterCards`, `countCards`, `dealCards(deck, filters, count, excludeIds)`,
+played history (`pantomima.library.played`, ids shared by all decks) and
+reported cards (`pantomima.library.reported`, `exportReportedCards()`).
 
 `game.mode` is saved with the game (old saves default to `"wikipedia"`).
 
@@ -102,6 +118,11 @@ modal (word description) and toast. `style.css` uses CSS variables in `:root`.
 ## 4. Conventions
 
 - Vanilla JS, ES2020+ (optional chaining, async/await), no modules, globals.
+- **No hard-coded UI text.** Add every string to both `STRINGS.el` and
+  `STRINGS.en` in `i18n.js`. HTML: `data-i18n="key"` (also
+  `data-i18n-placeholder`, `data-i18n-aria`; `render()` applies them). JS:
+  `t("key", { vars })`; plurals use a function value. Numbers: `formatNumber`.
+  Category/difficulty labels are `cat.<name>` / `diff.<name>`.
 - Each screen = template in HTML + `renderX()` in JS. Re-rendering replaces
   `#screenContainer` content, so listeners are re-attached every render.
 - Commits so far are short, informal messages straight on `main`.
@@ -129,6 +150,9 @@ All 9 issues found on 2026-11-09 are fixed (see Log). Still open / worth knowing
 - Wrong setup input after a failed start: setup is re-rendered, so typed team
   names are lost.
 
+- Library data is prototype quality (weak cards, same title in two scripts);
+  that's what the report button is for.
+
 ## 5b. Testing
 
 No test suite in the repo. What was used on 2026-11-09 (outside the repo):
@@ -139,45 +163,62 @@ No test suite in the repo. What was used on 2026-11-09 (outside the repo):
   390×844, with Wikipedia/Wikidata responses mocked via request interception.
   Covered: full round, timeout path, resume after reload (scoreboard + mid-timer),
   legacy save format, fetch failure mid-game, team-name injection, no page errors.
+- Word Library test: same setup but against `python -m http.server` (decks
+  need http). Covered: counts per filter (matches section 6 numbers), deck
+  switch, hint hidden by default, Latin notice (card + sneak peek), report in
+  dialog and briefing, points 1/2/3, no repeats across rounds and until the
+  filtered deck runs out, history/settings kept after reload, unknown fields.
 
 ---
 
-## 6. Adding the new library (second version)
+## 6. Word Library version
 
-The user asked (2026-11-09) for **dual modes**: keep the Wikipedia version and
-add the new library as a second version chosen at game start. The picker and
-the plug-in point already exist. When the library is ready:
+Spec came from the user on 2026-11-09. Key rules (keep them):
+- Decks are **data**: `decks/library_1000.json` (default) and
+  `decks/library_2000.json`, copied from `pantomima_library_creator`
+  (branch `m2c-m3-m4`, `data/`). No card content in code. Two separate decks
+  (the 2000 deck is not a strict superset).
+- Format: `{ generated_at, card_count, quotas, cards: [...] }`. Card fields
+  used: `id` (stable key for history), `card_text` (shown), `category`
+  (Action/Object/Media/Person/Phrase), `difficulty` (easy/medium/hard →
+  1/2/3 points), `latin_script` (**must** show "Στα αγγλικά!"),
+  `contains_name` (**must** be removable via "Χωρίς ονόματα"), `how_to_mime`
+  (hint, hidden until asked), `image_url` (optional). `title`, `source`,
+  `score`, `reviewed` are not shown. **Unknown fields are ignored**; unknown
+  categories/difficulties still work (raw name, default look, 1 point).
+- No repeats until the filtered deck runs out (then its history resets and it
+  reshuffles, with a toast). Cards count as played when shown on SELECTION.
+- Reporting: "?" dialog on SELECTION and "Αναφορά & άλλη κάρτα" on BRIEFING
+  store the card and replace it. Reported cards are never dealt again. Setup
+  has "Λήψη αναφορών" (JSON download, to send back to the library repo).
 
-1. Ask the user where it lives and its format (word list file? API? JS lib?)
-   and whether it has categories.
-2. Fill in `WORD_SOURCES.library` in `app.js`: set `available: true`, a real
-   `description`, and `fetchWords(options)` returning ≥3 (ideally 10) word
-   objects `{ title, extract }`. Avoid repeating words across rounds if possible.
-3. If it needs its own settings, add a block like `#wikipediaSettings` in the
-   setup template and show/hide it in `renderSetup` by `mode`; store values on
-   `game` so they are saved.
-4. Prefetch, resume and the rest work unchanged through `getWords()`.
+**Updating decks:** copy the new JSON over the files in `decks/`. Nothing else
+changes. For a new deck size, add it to `DECKS` in `library.js`.
+Expected numbers (handy for checks): 1000 deck: Action 250, Object 220,
+Media 200, Person 180, Phrase 150; 226 with names; 94 Latin. 2000 deck: 443
+with names, 173 Latin.
 
-If instead the user means a UI library/framework (earlier reading of
-"new library"), confirm first. Notes for that case:
-- The cleanest seam: **game logic vs. word fetching vs. UI**.
-  - Word source (`fetchJson`, `isPlayable`, `filterHumansViaWikidata`, the
-    title fetchers, `fetchArticles`, `fetchWords`) has no DOM or `game`
-    dependency any more — move it to its own module as is.
-  - Game rules (`Game` class, scoring, `swapTeams`, round progression) can be a
-    plain store/reducer, independent of the DOM.
-  - The 10 `renderX` functions map 1:1 to components/screens.
-- Keep behavior identical (same states, same localStorage key or a
-  migration for it).
-- Keep it deployable as a static site (likely GitHub Pages) unless told otherwise.
-- Test manually on a phone-sized viewport: full round, timeout path,
-  Sneak Peek on touch, Resume after reload, Exclude People on/off.
+Greek labels from the spec (Δράση, Χωρίς ονόματα, Στα αγγλικά!, ...) are the
+`el` strings; English mode shows English equivalents ("In English!").
 
 ---
 
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-09** — Two UI languages. New `i18n.js` (Greek default + English,
+  inline SVG flags, `t()`, `applyTranslations`). Flag switch on the first
+  screen; all HTML/JS UI text moved to translation keys (≈110 per language),
+  incl. library labels, plurals and number format (1.000 / 1,000). Tests:
+  Wikipedia (English) 24/24, library + language (Greek) 43/43.
+
+- **2026-11-09** — Word Library version (user's spec). Copied both decks to
+  `decks/`; new `library.js` (deck loading, filters, dealing, played/reported
+  history). Setup: deck picker, category + difficulty chips, Χωρίς ονόματα,
+  points by difficulty, live card count, history reset, reported download.
+  Cards show category/difficulty badges and "Στα αγγλικά!"; hint button on
+  briefing; report & replace. Wikipedia test 24/24, library test 37/37.
 
 - **2026-11-09** — Dual modes. New first screen "Choose Version"
   (`MODE_SELECT`) built from `WORD_SOURCES`: Wikipedia (enabled) and Word

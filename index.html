@@ -10,7 +10,7 @@
   <main class="app">
     <header class="app-header">
       <h1>Pantomima</h1>
-      <div id="teamIndicator" class="team-indicator">Setup</div>
+      <div id="teamIndicator" class="team-indicator">Pantomima</div>
     </header>
 
     <section id="screenContainer" class="screen"></section>
@@ -20,14 +20,19 @@
 
   <template id="modeTemplate">
     <div class="card">
-      <h2>Choose Version</h2>
-      <p class="muted">Where should the words come from?</p>
+      <div class="lang-row">
+        <span class="muted" data-i18n="app.language"></span>
+        <!-- One flag button per entry in LANGUAGES (i18n.js) -->
+        <div id="langSwitch" class="lang-switch"></div>
+      </div>
+      <h2 data-i18n="mode.title"></h2>
+      <p class="muted" data-i18n="mode.subtitle"></p>
       <!-- One button per entry in WORD_SOURCES (app.js) -->
       <div id="modeList" class="mode-list"></div>
       <div id="resumeBlock" class="resume-block hidden">
-        <p>Found a saved game.</p>
-        <button id="resumeBtn" class="secondary">Resume Game</button>
-        <button id="discardBtn" class="ghost">Discard</button>
+        <p data-i18n="resume.found"></p>
+        <button id="resumeBtn" class="secondary" data-i18n="resume.resume"></button>
+        <button id="discardBtn" class="ghost" data-i18n="resume.discard"></button>
       </div>
     </div>
   </template>
@@ -37,48 +42,78 @@
       <h2 id="setupTitle">Setup</h2>
       <div class="grid">
         <label>
-          Team A Name
-          <input id="teamAName" type="text" placeholder="Team A" />
+          <span data-i18n="setup.teamAName"></span>
+          <input id="teamAName" type="text" data-i18n-placeholder="team.a" />
         </label>
         <label>
-          Team A Color
+          <span data-i18n="setup.teamAColor"></span>
           <div id="teamAColorOptions" class="color-options"></div>
         </label>
         <label>
-          Team B Name
-          <input id="teamBName" type="text" placeholder="Team B" />
+          <span data-i18n="setup.teamBName"></span>
+          <input id="teamBName" type="text" data-i18n-placeholder="team.b" />
         </label>
         <label>
-          Team B Color
+          <span data-i18n="setup.teamBColor"></span>
           <div id="teamBColorOptions" class="color-options"></div>
         </label>
         <label>
-          Round Duration (seconds)
+          <span data-i18n="setup.roundDuration"></span>
           <input id="roundDuration" type="number" min="30" max="300" value="90" />
         </label>
         <label>
-          Total Rounds
+          <span data-i18n="setup.totalRounds"></span>
           <input id="totalRounds" type="number" min="1" max="20" value="6" />
         </label>
       </div>
       <!-- Settings only used by the Wikipedia version -->
       <div id="wikipediaSettings" class="grid hidden">
         <label>
-          Category
+          <span data-i18n="wiki.category"></span>
           <select id="categorySelect">
-            <option value="random">Random (any article)</option>
-            <option value="all">All categories (mix)</option>
+            <option value="random" data-i18n="wcat.random"></option>
+            <option value="all" data-i18n="wcat.all"></option>
             <!-- Topic categories are added from CATEGORIES in app.js -->
           </select>
         </label>
         <label class="checkbox-label">
           <input id="excludeHumansCheckbox" type="checkbox" />
-          Exclude People (Strict Mode)
+          <span data-i18n="wiki.excludePeople"></span>
         </label>
       </div>
+      <!-- Settings only used by the Word Library version (filled by app.js) -->
+      <div id="librarySettings" class="grid hidden">
+        <label>
+          <span data-i18n="lib.deck"></span>
+          <select id="deckSelect"></select>
+        </label>
+        <fieldset class="filter-group">
+          <legend data-i18n="lib.categories"></legend>
+          <div id="categoryFilters" class="chips"></div>
+        </fieldset>
+        <fieldset class="filter-group">
+          <legend data-i18n="lib.difficulty"></legend>
+          <div id="difficultyFilters" class="chips"></div>
+        </fieldset>
+        <label class="checkbox-label">
+          <input id="noNamesCheckbox" type="checkbox" />
+          <span data-i18n="lib.noNames"></span>
+        </label>
+        <label class="checkbox-label">
+          <input id="difficultyPointsCheckbox" type="checkbox" checked />
+          <span data-i18n="lib.points"></span>
+        </label>
+        <div id="deckCount" class="deck-count muted" data-i18n="lib.loading"></div>
+        <div class="library-tools">
+          <button id="resetPlayedBtn" type="button" class="ghost small" data-i18n="lib.resetHistory"></button>
+          <span id="reportedInfo" class="muted"></span>
+          <button id="downloadReportedBtn" type="button" class="ghost small hidden" data-i18n="lib.downloadReports"></button>
+          <button id="clearReportedBtn" type="button" class="ghost small hidden" data-i18n="lib.clearReports"></button>
+        </div>
+      </div>
       <div class="actions">
-        <button id="startGameBtn" class="primary">Start Game</button>
-        <button id="changeModeBtn" class="ghost">Change Version</button>
+        <button id="startGameBtn" class="primary" data-i18n="setup.start"></button>
+        <button id="changeModeBtn" class="ghost" data-i18n="setup.changeMode"></button>
       </div>
     </div>
   </template>
@@ -86,10 +121,10 @@
   <template id="selectionTemplate">
     <div class="card">
       <h2 id="selectionTitle"></h2>
-      <p class="muted">Select exactly 3 options for the opponent.</p>
+      <p id="selectionHelp" class="muted"></p>
       <div id="optionsList" class="options"></div>
       <div class="actions">
-        <button id="commitSelectionBtn" class="primary" disabled>Commit</button>
+        <button id="commitSelectionBtn" class="primary" disabled data-i18n="commit"></button>
       </div>
     </div>
   </template>
@@ -97,36 +132,43 @@
   <template id="choiceTemplate">
     <div class="card">
       <h2 id="choiceTitle"></h2>
-      <p class="muted">Pick 1 of the 3 highlighted options.</p>
+      <p id="choiceHelp" class="muted"></p>
       <div id="choiceList" class="options"></div>
       <div class="actions">
-        <button id="commitChoiceBtn" class="primary" disabled>Commit</button>
+        <button id="commitChoiceBtn" class="primary" disabled data-i18n="commit"></button>
       </div>
     </div>
   </template>
 
   <template id="briefingTemplate">
     <div class="card">
-      <h2>Briefing</h2>
+      <h2 data-i18n="briefing.title"></h2>
+      <div id="briefMeta" class="card-meta"></div>
       <div class="word" id="briefWord"></div>
+      <div id="briefLatin" class="latin-notice hidden" data-i18n="lib.latin"></div>
       <img id="briefImage" class="brief-image hidden" alt="" />
       <div class="excerpt" id="briefExcerpt"></div>
+      <button id="hintBtn" type="button" class="ghost hidden" data-i18n="lib.hint"></button>
       <div class="actions">
-        <button id="startRoundBtn" class="primary">Start Round</button>
+        <button id="startRoundBtn" class="primary" data-i18n="briefing.start"></button>
+        <button id="reportCardBtn" type="button" class="ghost hidden" data-i18n="lib.reportReplace"></button>
       </div>
     </div>
   </template>
 
   <template id="timerTemplate">
     <div class="card">
-      <h2>Timer</h2>
+      <h2 data-i18n="timer.title"></h2>
       <div id="timerDisplay" class="timer">00:00</div>
-      <div id="sneakDisplay" class="sneak hidden"></div>
+      <div id="sneakDisplay" class="sneak hidden">
+        <div id="sneakWord"></div>
+        <div id="sneakLatin" class="latin-notice hidden" data-i18n="lib.latin"></div>
+      </div>
       <div class="controls">
-        <button id="foundBtn" class="success">Found It</button>
-        <button id="abortBtn" class="danger">Abort</button>
-        <button id="pauseBtn" class="secondary">Pause</button>
-        <button id="sneakBtn" class="ghost">Sneak Peek (Hold)</button>
+        <button id="foundBtn" class="success" data-i18n="timer.found"></button>
+        <button id="abortBtn" class="danger" data-i18n="timer.abort"></button>
+        <button id="pauseBtn" class="secondary" data-i18n="timer.pause"></button>
+        <button id="sneakBtn" class="ghost" data-i18n="timer.sneak"></button>
       </div>
     </div>
   </template>
@@ -141,24 +183,24 @@
 
   <template id="scoreboardTemplate">
     <div class="card">
-      <h2>Scoreboard</h2>
+      <h2 data-i18n="score.title"></h2>
       <div id="scoreSummary" class="score-summary"></div>
       <div class="divider"></div>
       <div id="roundBreakdown" class="muted"></div>
       <div class="pass-message" id="passMessage"></div>
       <div class="actions">
-        <button id="nextRoundBtn" class="primary">Next Round</button>
-        <button id="endGameBtn" class="ghost">End Game Early</button>
+        <button id="nextRoundBtn" class="primary" data-i18n="score.next"></button>
+        <button id="endGameBtn" class="ghost" data-i18n="score.end"></button>
       </div>
     </div>
   </template>
 
   <template id="finalTemplate">
     <div class="card">
-      <h2>Final Score</h2>
+      <h2 data-i18n="final.title"></h2>
       <div id="finalSummary" class="score-summary"></div>
       <div class="actions">
-        <button id="resetBtn" class="primary">New Game</button>
+        <button id="resetBtn" class="primary" data-i18n="final.newGame"></button>
       </div>
     </div>
   </template>
@@ -166,18 +208,21 @@
   <template id="loadingTemplate">
     <div class="card center">
       <div class="spinner"></div>
-      <p class="muted">Fetching words...</p>
+      <p class="muted" data-i18n="loading.text"></p>
     </div>
   </template>
 
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">
-      <button id="closeModal" class="ghost close">Close</button>
+      <button id="closeModal" class="ghost close" data-i18n="modal.close"></button>
       <h3 id="modalTitle"></h3>
       <p id="modalText" class="muted"></p>
+      <div id="modalActions" class="actions"></div>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
+  <script src="library.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
