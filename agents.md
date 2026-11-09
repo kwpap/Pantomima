@@ -7,16 +7,20 @@ Notes and instructions for AI agents (and future me) working on this repo.
 
 ## 1. What this is
 
-A two-team **charades (παντομίμα)** game for one shared phone. Words come from
-**Greek Wikipedia** at runtime, so nobody is at a disadvantage for not knowing
-Greek TV / pop culture (see README).
+A two-team **charades (παντομίμα)** game for one shared phone. The game has
+**versions** (word sources), picked on the first screen:
+- **Wikipedia** — words from Greek Wikipedia at runtime, so nobody is at a
+  disadvantage for not knowing Greek TV / pop culture (see README). The user
+  likes this version: it must stay.
+- **Word Library** — placeholder ("Coming soon", disabled) for the new library
+  the user is preparing.
 
 - Pure static site: `index.html` + `app.js` + `style.css`. No build step, no
   package.json, no dependencies, no tests.
 - UI text is English; game content (words, excerpts) is Greek. `<html lang="el">`.
 - Mobile-first, dark theme, max width 480px.
-- **Planned:** the game will soon move onto a new library/framework (not yet
-  decided as of 2026-11-09). See section 6 before starting that work.
+- **Planned:** a new library is coming (as of 2026-11-09). It will be a
+  second version next to Wikipedia, not a replacement. See section 6.
 
 ### Run it
 Open `index.html` in a browser, or serve the folder (better, avoids file://
@@ -31,11 +35,14 @@ Needs internet (Wikipedia + Wikidata APIs, CORS via `origin=*`).
 matching `renderX()`.
 
 ```
+MODE_SELECT ──pick version──> SETUP   (MODE_SELECT also has Resume / Discard;
+                                        SETUP has "Change Version" back)
+
 SETUP ──start──> LOADING ──> SELECTION ──> CHOICE ──> BRIEFING ──> TIMER ──> RESULT ──> SCOREBOARD
   ^                 ^        (active team   (opponent    (opponent   (opponent         │
   │                 │         picks 3 of 10) picks 1)     sees word)  acts it out)     │
   │                 └───────────── next round: round++, swapTeams() ─────────────────┤
-  └── New Game (reload) <── FINAL <── last round / "End Game Early" ──────────────────┘
+  └── New Game (reload → MODE_SELECT) <── FINAL <── last round / "End Game Early" ──────────────────┘
 ```
 
 Roles each round:
@@ -66,12 +73,15 @@ while held (mouse + touch handlers).
 | `filterHumansViaWikidata(articles)` | "Exclude People": Wikidata `wbgetentities` (50 ids/request), drops P31 = Q5 (human). Fails open |
 | `fetchRandomTitles` / `searchCategoryTitles` / `fetchCategoryTitles` | Title sources. Categories use CirrusSearch `deepcat:"X"` with `srsort=random` (whole subcategory tree), falling back to `incategory:`. `"all"` = 2 random topics per call |
 | `fetchArticles(titles)` | extract + thumbnail + Wikidata id, in batches of 20 (API limit for intro extracts) |
-| `fetchWords(category, { excludeHumans })` | Loops until 10 unique playable words; throws if fewer than 3 |
-| `startPrefetch()` | Background fetch for the next round, stored in `prefetch` |
+| `fetchWords(category, { excludeHumans })` | Wikipedia only: loops until 10 unique playable words; throws if fewer than 3 |
+| `WORD_SOURCES` | Registry of game versions: `{ label, description, available, fetchWords(options) }`. Keys: `wikipedia`, `library` (disabled placeholder). The first screen is built from it |
+| `getWords()` | Words for the current `game.mode`. **All word fetching goes through this** |
+| `startPrefetch()` | Background `getWords()` for the next round, stored in `prefetch` |
+| `renderModeSelect()` | First screen: version buttons + Resume/Discard |
 | `setState` + `renderX` per screen | `setState` also saves for resumable states (SELECTION…SCOREBOARD) |
 | `loadWordsAndGo()` | Uses prefetch if ready/pending, else fetches. Returns `false` on failure (caller decides: back to SETUP, or undo round++ and stay on SCOREBOARD) |
 | `endRound(result)` | Stops timer, updates score/time → RESULT |
-| `init()` | `setState(SETUP)` |
+| `init()` | `setState(MODE_SELECT)` |
 
 **Prefetch:** when TIMER starts (and it isn't the last round), `startPrefetch()`
 runs so the next SELECTION is usually instant.
@@ -79,7 +89,10 @@ runs so the next SELECTION is usually instant.
 **Save/resume:** saved on every resumable state change and every timer tick, so
 a reload resumes on the same screen (timer included). Cleared on FINAL.
 
-**Word object shape:** `{ title, extract, image, wikibase_item }`.
+**Word object shape:** `{ title, extract, image, wikibase_item }`. A new source
+needs at least `title` and `extract` (`image` is optional, shown on briefing).
+
+`game.mode` is saved with the game (old saves default to `"wikipedia"`).
 
 `index.html` holds all screens as `<template id="...Template">` plus a shared
 modal (word description) and toast. `style.css` uses CSS variables in `:root`.
@@ -129,16 +142,31 @@ No test suite in the repo. What was used on 2026-11-09 (outside the repo):
 
 ---
 
-## 6. Guidance for the upcoming library migration
+## 6. Adding the new library (second version)
 
-- Ask the user which library/framework before starting; don't assume.
+The user asked (2026-11-09) for **dual modes**: keep the Wikipedia version and
+add the new library as a second version chosen at game start. The picker and
+the plug-in point already exist. When the library is ready:
+
+1. Ask the user where it lives and its format (word list file? API? JS lib?)
+   and whether it has categories.
+2. Fill in `WORD_SOURCES.library` in `app.js`: set `available: true`, a real
+   `description`, and `fetchWords(options)` returning ≥3 (ideally 10) word
+   objects `{ title, extract }`. Avoid repeating words across rounds if possible.
+3. If it needs its own settings, add a block like `#wikipediaSettings` in the
+   setup template and show/hide it in `renderSetup` by `mode`; store values on
+   `game` so they are saved.
+4. Prefetch, resume and the rest work unchanged through `getWords()`.
+
+If instead the user means a UI library/framework (earlier reading of
+"new library"), confirm first. Notes for that case:
 - The cleanest seam: **game logic vs. word fetching vs. UI**.
   - Word source (`fetchJson`, `isPlayable`, `filterHumansViaWikidata`, the
     title fetchers, `fetchArticles`, `fetchWords`) has no DOM or `game`
     dependency any more — move it to its own module as is.
   - Game rules (`Game` class, scoring, `swapTeams`, round progression) can be a
     plain store/reducer, independent of the DOM.
-  - The 9 `renderX` functions map 1:1 to components/screens.
+  - The 10 `renderX` functions map 1:1 to components/screens.
 - Keep behavior identical (same states, same localStorage key or a
   migration for it).
 - Keep it deployable as a static site (likely GitHub Pages) unless told otherwise.
@@ -150,6 +178,14 @@ No test suite in the repo. What was used on 2026-11-09 (outside the repo):
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-09** — Dual modes. New first screen "Choose Version"
+  (`MODE_SELECT`) built from `WORD_SOURCES`: Wikipedia (enabled) and Word
+  Library (disabled, "Coming soon"). Resume/Discard moved to this screen.
+  Setup shows the chosen version, hides Wikipedia-only settings for other
+  versions, and has "Change Version". `game.mode` is saved; all fetching goes
+  through `getWords()`. UI test (24 checks) passes. Open: plug in the library
+  (section 6).
 
 - **2026-11-09** — Fixed all 9 issues from the first review:
   1. Resume: runtime state (`timerId`, prefetch) moved out of `Game`; old saves

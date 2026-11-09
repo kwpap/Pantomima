@@ -18,9 +18,23 @@
     <div id="toast" class="toast" aria-live="polite"></div>
   </main>
 
+  <template id="modeTemplate">
+    <div class="card">
+      <h2>Choose Version</h2>
+      <p class="muted">Where should the words come from?</p>
+      <!-- One button per entry in WORD_SOURCES (app.js) -->
+      <div id="modeList" class="mode-list"></div>
+      <div id="resumeBlock" class="resume-block hidden">
+        <p>Found a saved game.</p>
+        <button id="resumeBtn" class="secondary">Resume Game</button>
+        <button id="discardBtn" class="ghost">Discard</button>
+      </div>
+    </div>
+  </template>
+
   <template id="setupTemplate">
     <div class="card">
-      <h2>Setup</h2>
+      <h2 id="setupTitle">Setup</h2>
       <div class="grid">
         <label>
           Team A Name
@@ -46,6 +60,9 @@
           Total Rounds
           <input id="totalRounds" type="number" min="1" max="20" value="6" />
         </label>
+      </div>
+      <!-- Settings only used by the Wikipedia version -->
+      <div id="wikipediaSettings" class="grid hidden">
         <label>
           Category
           <select id="categorySelect">
@@ -61,11 +78,7 @@
       </div>
       <div class="actions">
         <button id="startGameBtn" class="primary">Start Game</button>
-      </div>
-      <div id="resumeBlock" class="resume-block hidden">
-        <p>Found a saved game.</p>
-        <button id="resumeBtn" class="secondary">Resume Game</button>
-        <button id="discardBtn" class="ghost">Discard</button>
+        <button id="changeModeBtn" class="ghost">Change Version</button>
       </div>
     </div>
   </template>

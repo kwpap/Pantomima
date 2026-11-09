@@ -20,6 +20,7 @@ const GameStates = {
   SCOREBOARD: 6,
   FINAL: 7,
   LOADING: 8,
+  MODE_SELECT: 9,
 };
 
 // Topic categories on Greek Wikipedia. "all" mixes these; "random" uses any article.
@@ -70,6 +71,7 @@ class Game {
     this.timerRemaining = 0;
     this.endedEarly = false;
     this.lastResult = null;
+    this.mode = "wikipedia"; // key in WORD_SOURCES
     this.category = "random";
     this.excludeHumans = false;
   }
@@ -134,6 +136,7 @@ const modalTitle = $("#modalTitle");
 const modalText = $("#modalText");
 
 const templates = {
+  mode: $("#modeTemplate"),
   setup: $("#setupTemplate"),
   selection: $("#selectionTemplate"),
   choice: $("#choiceTemplate"),
@@ -432,10 +435,39 @@ const fetchWords = async (category = "random", { excludeHumans = false } = {}) =
   return words;
 };
 
+/**
+ * Game versions, chosen on the first screen. Each source returns an array of
+ * at least PICKS_PER_ROUND words shaped { title, extract, image?, wikibase_item? }.
+ * To add a version: add an entry here (and its settings to the setup screen if any).
+ */
+const WORD_SOURCES = {
+  wikipedia: {
+    label: "Wikipedia",
+    description: "Live words from Greek Wikipedia, with categories.",
+    available: true,
+    fetchWords: ({ category, excludeHumans }) => fetchWords(category, { excludeHumans }),
+  },
+  library: {
+    label: "Word Library",
+    description: "Coming soon.",
+    available: false,
+    fetchWords: async () => {
+      throw new Error("Word Library is not available yet");
+    },
+  },
+};
+
+/** Words for one round from the current game's version. */
+const getWords = () =>
+  (WORD_SOURCES[game.mode] || WORD_SOURCES.wikipedia).fetchWords({
+    category: game.category,
+    excludeHumans: game.excludeHumans,
+  });
+
 /** Start fetching next round's words in the background. */
 const startPrefetch = () => {
   const entry = { words: null };
-  entry.promise = fetchWords(game.category, { excludeHumans: game.excludeHumans })
+  entry.promise = getWords()
     .then((words) => (entry.words = words))
     .catch((error) => {
       console.warn("Prefetch failed, will fetch again when needed:", error);
@@ -473,6 +505,9 @@ const setState = (state) => {
   game.state = state;
   if (SAVED_STATES.has(state)) game.save();
   switch (state) {
+    case GameStates.MODE_SELECT:
+      renderModeSelect();
+      break;
     case GameStates.SETUP:
       renderSetup();
       break;
@@ -505,10 +540,53 @@ const setState = (state) => {
   }
 };
 
+/** First screen: pick the game version (word source), or resume a saved game. */
+const renderModeSelect = () => {
+  setTeamIndicator("Pantomima");
+  const node = templates.mode.content.cloneNode(true);
+  render(node);
+
+  const list = $("#modeList");
+  Object.entries(WORD_SOURCES).forEach(([key, source]) => {
+    const btn = el("button", "mode-btn");
+    btn.type = "button";
+    btn.dataset.mode = key;
+    btn.disabled = !source.available;
+    btn.append(el("span", "mode-name", source.label), el("span", "mode-desc", source.description));
+    btn.addEventListener("click", () => {
+      game.mode = key;
+      setState(GameStates.SETUP);
+    });
+    list.appendChild(btn);
+  });
+
+  const resumeBlock = $("#resumeBlock");
+  if (Game.load()) resumeBlock.classList.remove("hidden");
+
+  $("#resumeBtn").addEventListener("click", () => {
+    const savedGame = Game.load();
+    if (!savedGame) return;
+    Object.assign(game, savedGame);
+    prefetch = null;
+    setState(game.state);
+  });
+
+  $("#discardBtn").addEventListener("click", () => {
+    game.clearSave();
+    resumeBlock.classList.add("hidden");
+    showToast("Saved game discarded.");
+  });
+};
+
 const renderSetup = () => {
-  setTeamIndicator("Setup");
+  const mode = WORD_SOURCES[game.mode] ? game.mode : "wikipedia";
+  const source = WORD_SOURCES[mode];
+  setTeamIndicator(source.label);
   const node = templates.setup.content.cloneNode(true);
   render(node);
+
+  $("#setupTitle").textContent = `Setup — ${source.label}`;
+  $("#changeModeBtn").addEventListener("click", () => setState(GameStates.MODE_SELECT));
 
   const categorySelect = $("#categorySelect");
   CATEGORIES.forEach(({ value, label }) => {
@@ -516,10 +594,7 @@ const renderSetup = () => {
     option.value = value;
     categorySelect.appendChild(option);
   });
-
-  const resumeBlock = $("#resumeBlock");
-  const saved = Game.load();
-  if (saved) resumeBlock.classList.remove("hidden");
+  if (mode === "wikipedia") $("#wikipediaSettings").classList.remove("hidden");
 
   let selectedTeamAColor = DEFAULT_TEAM_A_COLOR;
   let selectedTeamBColor = DEFAULT_TEAM_B_COLOR;
@@ -565,26 +640,13 @@ const renderSetup = () => {
       ],
       roundDuration,
       totalRounds,
+      mode,
       category,
       excludeHumans: $("#excludeHumansCheckbox").checked,
     });
     prefetch = null;
 
     if (!(await loadWordsAndGo())) setState(GameStates.SETUP);
-  });
-
-  $("#resumeBtn")?.addEventListener("click", () => {
-    const savedGame = Game.load();
-    if (!savedGame) return;
-    Object.assign(game, savedGame);
-    prefetch = null;
-    setState(game.state);
-  });
-
-  $("#discardBtn")?.addEventListener("click", () => {
-    game.clearSave();
-    resumeBlock.classList.add("hidden");
-    showToast("Saved game discarded.");
   });
 };
 
@@ -606,7 +668,7 @@ const loadWordsAndGo = async () => {
     if (!words) {
       setState(GameStates.LOADING);
       if (pending) words = await pending.promise;
-      if (!words) words = await fetchWords(game.category, { excludeHumans: game.excludeHumans });
+      if (!words) words = await getWords();
     }
 
     game.words = words;
@@ -914,7 +976,7 @@ const renderFinal = () => {
 };
 
 const init = () => {
-  setState(GameStates.SETUP);
+  setState(GameStates.MODE_SELECT);
 };
 
 init();
