@@ -1,9 +1,13 @@
-const WIKI_API = "https://el.wikipedia.org/w/api.php";
 const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
 const STORAGE_KEY = "pantomima.gameState";
+// Bump when the saved game format changes: older saves are then ignored.
+const SAVE_VERSION = 2;
 
+// Wikipedia Freaks: 10 words, the active team picks 3, the other team picks 1.
 const WORDS_PER_ROUND = 10;
 const PICKS_PER_ROUND = 3;
+// Curated Library: the active team picks 1 of 2 cards.
+const LIBRARY_CARDS_PER_ROUND = 2;
 // The extracts API returns at most 20 intro extracts per request.
 const EXTRACTS_BATCH = 20;
 const MAX_FETCH_ATTEMPTS = 15;
@@ -23,14 +27,73 @@ const GameStates = {
   MODE_SELECT: 9,
 };
 
-// Topic categories on Greek Wikipedia. "all" mixes these; "random" uses any article.
+// Topic categories for the setup menu. "all" mixes these; "random" uses any article.
+// The Wikipedia category names for each topic are in WIKIS below.
 const CATEGORIES = [
-  { value: "Κατηγορία:Ιστορία", labelKey: "wcat.history" },
-  { value: "Κατηγορία:Γεωγραφία", labelKey: "wcat.geography" },
-  { value: "Κατηγορία:Επιστήμες", labelKey: "wcat.science" },
-  { value: "Κατηγορία:Τέχνες", labelKey: "wcat.arts" },
-  { value: "Κατηγορία:Τεχνολογία", labelKey: "wcat.technology" },
+  { value: "history", labelKey: "wcat.history" },
+  { value: "geography", labelKey: "wcat.geography" },
+  { value: "science", labelKey: "wcat.science" },
+  { value: "arts", labelKey: "wcat.arts" },
+  { value: "technology", labelKey: "wcat.technology" },
 ];
+
+/**
+ * One entry per UI language: Wikipedia Freaks uses the Wikipedia of the
+ * language the app is in (fixed when the game starts).
+ * categories: topic -> category names (without prefix); one is picked at random.
+ *   English top-level trees are too big for deepcat (it times out), so English
+ *   uses smaller subtrees.
+ * bannedPrefixes / bannedKeywords: see isPlayable(). The Greek ones are tuned
+ *   for word quality; keep them.
+ */
+const WIKIS = {
+  el: {
+    api: "https://el.wikipedia.org/w/api.php",
+    categories: {
+      history: ["Ιστορία"],
+      geography: ["Γεωγραφία"],
+      science: ["Επιστήμες"],
+      arts: ["Τέχνες"],
+      technology: ["Τεχνολογία"],
+    },
+    bannedPrefixes: [
+      "κατάλογος", // List
+      "αρχείο", // File
+      "πρότυπο", // Template
+      "κατηγορία", // Category
+      "βοήθεια", // Help
+      "χρήστης", // User
+      "συζήτηση", // Talk page
+      "βικιπαίδεια", // Wikipedia meta page
+    ],
+    bannedKeywords: [
+      "αποσαφήνιση", // Disambiguation page
+      "αναφέρεται σε", // "Refers to..." (often disambiguation)
+      "μπορεί να αναφέρεται", // "May refer to..."
+    ],
+  },
+  en: {
+    api: "https://en.wikipedia.org/w/api.php",
+    categories: {
+      history: ["Wars", "Empires", "Ancient history"],
+      geography: ["Geography"],
+      science: ["Science"],
+      arts: ["Visual arts", "Performing arts", "Films"],
+      technology: ["Technology"],
+    },
+    bannedPrefixes: [
+      "list of",
+      "lists of",
+      "index of",
+      "outline of",
+      "glossary of",
+      "timeline of",
+      "bibliography of",
+    ],
+    bannedKeywords: ["may refer to", "disambiguation"],
+  },
+};
+const wikiFor = (lang) => WIKIS[lang] || WIKIS[DEFAULT_LANG];
 
 const COLOR_PALETTE = [
   { name: "Blue", hex: "#4aa3ff" },
@@ -44,19 +107,18 @@ const COLOR_PALETTE = [
 const DEFAULT_TEAM_A_COLOR = COLOR_PALETTE[0].hex;
 const DEFAULT_TEAM_B_COLOR = COLOR_PALETTE[1].hex;
 
-// Older saves (before 2026-11-09) also stored these runtime-only fields.
-const LEGACY_RUNTIME_FIELDS = ["prefetchPromise", "prefetchedWords", "timerId"];
-
 /**
  * All persistent game data. Every field must be JSON-serializable:
  * runtime-only things (timer handle, prefetch promise) live outside this class.
  */
 class Game {
   constructor() {
+    this.version = SAVE_VERSION;
     this.state = GameStates.SETUP;
-    this.round = 1;
+    // One round = one turn per team, so a game has totalRounds * 2 turns.
+    this.turn = 1;
     this.totalRounds = 6;
-    this.roundDuration = 90;
+    this.roundDuration = 90; // Wikipedia Freaks: acting time per turn (setup)
     this.teams = [
       { name: t("team.a"), color: DEFAULT_TEAM_A_COLOR, score: 0, time: 0 },
       { name: t("team.b"), color: DEFAULT_TEAM_B_COLOR, score: 0, time: 0 },
@@ -67,18 +129,25 @@ class Game {
     this.selectedIndices = [];
     this.chosenIndex = null;
     this.elapsedThisRound = 0;
+    // Timer, based on the real clock (Date.now()) so it stays right when the
+    // phone sleeps or the page reloads.
+    this.turnSeconds = 0; // acting time of the current turn
+    this.timerEndsAt = 0; // ms timestamp, while running
+    this.timerLeftMs = 0; // while paused
     this.isPaused = false;
-    this.timerRemaining = 0;
     this.endedEarly = false;
     this.lastResult = null;
+    this.lastPoints = null; // { total, base?, time?, bonus? } of the last found card
     this.mode = "wikipedia"; // key in WORD_SOURCES
-    // Wikipedia version settings
+    // Wikipedia Freaks settings
+    this.wikiLang = DEFAULT_LANG; // set to the UI language at start
     this.category = "random";
     this.excludeHumans = false;
-    // Word Library version settings (empty list = all)
+    // Curated Library settings (empty list = all)
     this.deckFile = DEFAULT_DECK;
     this.libraryFilters = { categories: [], difficulties: [], noNames: false };
-    this.pointsByDifficulty = true;
+    this.difficultyTimes = defaultDifficultyTimes(); // difficulty -> seconds
+    this.bet = "none"; // key in BETS, chosen by the actor before the turn
   }
 
   save() {
@@ -94,7 +163,7 @@ class Game {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       const data = JSON.parse(raw);
-      LEGACY_RUNTIME_FIELDS.forEach((key) => delete data[key]);
+      if (data.version !== SAVE_VERSION) return null; // older game rules
       const loaded = Object.assign(new Game(), data);
       if (!Array.isArray(loaded.words) || !Array.isArray(loaded.teams)) return null;
       return loaded;
@@ -144,6 +213,7 @@ const templates = {
   mode: $("#modeTemplate"),
   setup: $("#setupTemplate"),
   selection: $("#selectionTemplate"),
+  pick: $("#pickTemplate"),
   choice: $("#choiceTemplate"),
   briefing: $("#briefingTemplate"),
   timer: $("#timerTemplate"),
@@ -216,9 +286,10 @@ const fetchJson = async (baseUrl, params) => {
  * Heuristic Filter for "Pantomima" Playability
  * Returns true if the article is suitable for a charades game.
  * @param {Object} article - The Wikipedia article object (must include .title and .extract)
+ * @param {Object} wiki - entry in WIKIS (banned prefixes/keywords for that language)
  * @returns {boolean}
  */
-const isPlayable = (article) => {
+const isPlayable = (article, wiki) => {
   if (!article || !article.title) return false;
 
   const title = article.title.trim();
@@ -242,20 +313,9 @@ const isPlayable = (article) => {
   // Example: "Paris (Mythology)" or "List of: Cities"
   if (/[():]/.test(title)) return false;
 
-  // --- RULE 3: GREEK WIKIPEDIA "SYSTEM" FILTERS ---
-  // These prefixes indicate non-game pages
-  const bannedPrefixes = [
-    "κατάλογος", // List
-    "αρχείο",    // File
-    "πρότυπο",   // Template
-    "κατηγορία", // Category
-    "βοήθεια",   // Help
-    "χρήστης",   // User
-    "συζήτηση",  // Talk page
-    "βικιπαίδεια"// Wikipedia meta page
-  ];
-
-  if (bannedPrefixes.some(prefix => titleLower.startsWith(prefix))) {
+  // --- RULE 3: "SYSTEM" PAGES (lists, files, ...) ---
+  // These prefixes indicate non-game pages (per language, in WIKIS)
+  if (wiki.bannedPrefixes.some(prefix => titleLower.startsWith(prefix))) {
     return false;
   }
 
@@ -266,13 +326,7 @@ const isPlayable = (article) => {
   // --- RULE 5: CONTEXT BANS (SUMMARY SCAN) ---
   // Even if the title looks good, the summary might reveal it's a technical list
   // or a disambiguation page (where one word has 10 meanings).
-  const bannedKeywords = [
-    "αποσαφήνιση", // Disambiguation page
-    "αναφέρεται σε", // "Refers to..." (often disambiguation)
-    "μπορεί να αναφέρεται", // "May refer to..."
-  ];
-
-  if (bannedKeywords.some(keyword => summary.includes(keyword))) {
+  if (wiki.bannedKeywords.some(keyword => summary.includes(keyword))) {
     return false;
   }
 
@@ -320,9 +374,9 @@ const filterHumansViaWikidata = async (articles) => {
   }
 };
 
-/** Titles of random articles from anywhere on Greek Wikipedia. */
-const fetchRandomTitles = async (count) => {
-  const data = await fetchJson(WIKI_API, {
+/** Titles of random articles from anywhere on that Wikipedia. */
+const fetchRandomTitles = async (wiki, count) => {
+  const data = await fetchJson(wiki.api, {
     action: "query",
     list: "random",
     rnlimit: count,
@@ -331,11 +385,13 @@ const fetchRandomTitles = async (count) => {
   return data.query.random.map((item) => item.title);
 };
 
-/** Random article titles from one category tree, using CirrusSearch. */
-const searchCategoryTitles = async (category, count) => {
-  const name = category.replace(/^(Κατηγορία|Category):/, "");
+/** Random article titles from one topic's category tree, using CirrusSearch. */
+const searchCategoryTitles = async (wiki, topic, count) => {
+  const names = wiki.categories[topic] || [];
+  const name = names[Math.floor(Math.random() * names.length)];
+  if (!name) return [];
   const search = async (operator) => {
-    const data = await fetchJson(WIKI_API, {
+    const data = await fetchJson(wiki.api, {
       action: "query",
       list: "search",
       srsearch: `${operator}:"${name}"`,
@@ -356,20 +412,20 @@ const searchCategoryTitles = async (category, count) => {
  * Titles from a topic category, or from a mix of all topics for "all".
  * Top-level categories hold few articles directly, so we search their whole tree.
  */
-const fetchCategoryTitles = async (category, count) => {
-  if (category !== "all") return searchCategoryTitles(category, count);
+const fetchCategoryTitles = async (wiki, category, count) => {
+  if (category !== "all") return searchCategoryTitles(wiki, category, count);
   // Mix two random topics per call to keep requests low.
   const picks = shuffle(CATEGORIES).slice(0, 2);
   const perTopic = Math.ceil(count / picks.length);
-  const results = await Promise.all(picks.map((c) => searchCategoryTitles(c.value, perTopic)));
+  const results = await Promise.all(picks.map((c) => searchCategoryTitles(wiki, c.value, perTopic)));
   return shuffle(results.flat());
 };
 
 /** Load extract, thumbnail and Wikidata id for the given titles. */
-const fetchArticles = async (titles) => {
+const fetchArticles = async (wiki, titles) => {
   const articles = [];
   for (const batch of chunk(titles, EXTRACTS_BATCH)) {
-    const data = await fetchJson(WIKI_API, {
+    const data = await fetchJson(wiki.api, {
       action: "query",
       prop: "pageprops|pageimages|extracts",
       ppprop: "wikibase_item",
@@ -398,10 +454,11 @@ const fetchArticles = async (titles) => {
 /**
  * Fetch playable words for one round.
  * @param {string} category - "random", "all", or a CATEGORIES value
- * @param {{ excludeHumans?: boolean }} options
+ * @param {{ excludeHumans?: boolean, lang?: string }} options - lang: key in WIKIS
  * @returns {Promise<Array<{title, extract, image, wikibase_item}>>}
  */
-const fetchWords = async (category = "random", { excludeHumans = false } = {}) => {
+const fetchWords = async (category = "random", { excludeHumans = false, lang = DEFAULT_LANG } = {}) => {
+  const wiki = wikiFor(lang);
   const found = new Map(); // title -> article (dedupes across attempts)
   const seenTitles = new Set();
 
@@ -410,13 +467,13 @@ const fetchWords = async (category = "random", { excludeHumans = false } = {}) =
     const wanted = Math.min(EXTRACTS_BATCH, 10 + missing * 2);
 
     const candidates = category === "random"
-      ? await fetchRandomTitles(wanted)
-      : await fetchCategoryTitles(category, wanted);
+      ? await fetchRandomTitles(wiki, wanted)
+      : await fetchCategoryTitles(wiki, category, wanted);
     const titles = candidates.filter((title) => !seenTitles.has(title));
     titles.forEach((title) => seenTitles.add(title));
     if (titles.length === 0) continue;
 
-    let playable = (await fetchArticles(titles)).filter(isPlayable);
+    let playable = (await fetchArticles(wiki, titles)).filter((article) => isPlayable(article, wiki));
     if (excludeHumans) playable = await filterHumansViaWikidata(playable);
     playable.forEach((article) => {
       if (!found.has(article.title)) found.set(article.title, article);
@@ -424,7 +481,7 @@ const fetchWords = async (category = "random", { excludeHumans = false } = {}) =
   }
 
   const words = shuffle([...found.values()]).slice(0, WORDS_PER_ROUND);
-  console.log(`Loaded ${words.length} words from category: ${category}`, words);
+  console.log(`Loaded ${words.length} words (${lang}) from category: ${category}`, words);
   if (words.length < PICKS_PER_ROUND) {
     throw new Error(`Only found ${words.length} playable words`);
   }
@@ -432,26 +489,29 @@ const fetchWords = async (category = "random", { excludeHumans = false } = {}) =
 };
 
 /**
- * Game versions, chosen on the first screen. Each source returns an array of
- * at least PICKS_PER_ROUND words shaped { title, extract, image?, wikibase_item? }.
+ * Game versions, chosen on the first screen. Each source returns the words for
+ * one turn, shaped { title, extract, image?, ... }.
  * To add a version: add an entry here (and its settings to the setup screen if any).
  */
 const WORD_SOURCES = {
+  // "Wikipedia Freaks": 10 words, pick 3, the other team picks 1. 1 point.
   wikipedia: {
     labelKey: "source.wikipedia.label",
     descriptionKey: "source.wikipedia.desc",
     available: true,
-    fetchWords: ({ category, excludeHumans }) => fetchWords(category, { excludeHumans }),
+    fetchWords: ({ category, excludeHumans, wikiLang }) =>
+      fetchWords(category, { excludeHumans, lang: wikiLang }),
   },
+  // "Curated Library": 2 cards, pick 1. Time by difficulty, points + bets.
   library: {
     labelKey: "source.library.label",
     descriptionKey: "source.library.desc",
     available: true,
     fetchWords: async ({ deckFile, libraryFilters, excludeIds }) => {
       const deck = await loadDeck(deckFile);
-      const { cards, reshuffled } = dealCards(deck, libraryFilters, WORDS_PER_ROUND, excludeIds);
+      const { cards, reshuffled } = dealCards(deck, libraryFilters, LIBRARY_CARDS_PER_ROUND, { excludeIds });
       if (reshuffled) showToast(t("lib.reshuffled"));
-      if (cards.length < PICKS_PER_ROUND) {
+      if (cards.length < LIBRARY_CARDS_PER_ROUND) {
         throw new Error(`Only ${cards.length} cards match the filters`);
       }
       return cards;
@@ -466,15 +526,25 @@ const getWords = () =>
   (WORD_SOURCES[game.mode] || WORD_SOURCES.wikipedia).fetchWords({
     category: game.category,
     excludeHumans: game.excludeHumans,
+    wikiLang: game.wikiLang,
     deckFile: game.deckFile,
     libraryFilters: game.libraryFilters,
     excludeIds: new Set(game.words.map((w) => w.id).filter(Boolean)),
   });
 
-/** Points the acting team gets for guessing the current card. */
-const roundPoints = () => {
-  const word = game.words[game.chosenIndex];
-  return isLibraryGame() && game.pointsByDifficulty && word?.points ? word.points : 1;
+/** Turns: one per team per round. */
+const isLastTurn = () => game.turn >= game.totalRounds * 2;
+const currentRound = () => Math.ceil(game.turn / 2);
+
+/** Library: acting time for a card before any bet (setup times, else defaults). */
+const cardSeconds = (word) =>
+  Number(game.difficultyTimes?.[word.difficulty]) || difficultyInfo(word.difficulty).seconds;
+
+/** Give the acting team its points for a found word/card. */
+const awardPoints = (secondsLeft) => {
+  const points = isLibraryGame() ? libraryPoints(secondsLeft, game.bet) : { total: 1 };
+  game.opponentTeam.score += points.total;
+  game.lastPoints = points;
 };
 
 /**
@@ -486,8 +556,10 @@ const reportAndReplaceCard = async (index) => {
   try {
     const deck = await loadDeck(game.deckFile);
     reportCard(card, deck.file, deck.generatedAt);
-    const exclude = new Set(game.words.map((w) => w.id));
-    const [fresh] = dealCards(deck, game.libraryFilters, 1, exclude).cards;
+    const excludeIds = new Set(game.words.map((w) => w.id));
+    // While picking, keep the two cards' difficulties different.
+    const others = game.state === GameStates.SELECTION ? game.words.filter((_, i) => i !== index) : [];
+    const [fresh] = dealCards(deck, game.libraryFilters, 1, { excludeIds, others }).cards;
     if (!fresh) {
       showToast(t("lib.reportedNoMore"));
       return false;
@@ -566,7 +638,8 @@ const setState = (state) => {
       renderSetup();
       break;
     case GameStates.SELECTION:
-      renderSelection();
+      if (isLibraryGame()) renderPick();
+      else renderSelection();
       break;
     case GameStates.CHOICE:
       renderChoice();
@@ -669,6 +742,8 @@ const renderSetup = () => {
   });
   if (mode === "wikipedia") $("#wikipediaSettings").classList.remove("hidden");
   const library = mode === "library" ? setupLibrarySettings() : null;
+  // Library times come from the difficulty settings instead.
+  if (library) $("#roundDurationField").classList.add("hidden");
 
   let selectedTeamAColor = DEFAULT_TEAM_A_COLOR;
   let selectedTeamBColor = DEFAULT_TEAM_B_COLOR;
@@ -715,6 +790,7 @@ const renderSetup = () => {
       roundDuration,
       totalRounds,
       mode,
+      wikiLang: getLanguage(), // Wikipedia Freaks plays in the app's language
       category,
       excludeHumans: $("#excludeHumansCheckbox").checked,
       ...(library ? library.getSettings() : {}),
@@ -746,16 +822,30 @@ const setupLibrarySettings = () => {
   });
   deckSelect.value = DECKS.some((d) => d.file === saved.deckFile) ? saved.deckFile : DEFAULT_DECK;
   $("#noNamesCheckbox").checked = savedFilters.noNames === true;
-  $("#difficultyPointsCheckbox").checked = saved.pointsByDifficulty !== false;
 
   const categoryBox = $("#categoryFilters");
   const difficultyBox = $("#difficultyFilters");
   const deckCount = $("#deckCount");
   let deck = null;
 
-  // One checkbox chip per value; checked if the saved list is empty ("all") or includes it.
-  const fillChips = (box, values, savedList, describe) => {
-    const keep = new Set([...box.querySelectorAll("input:checked")].map((i) => i.value));
+  // Acting time per difficulty: saved values, else defaults (45 / 60 / 90).
+  const MIN_SECONDS = 10;
+  const MAX_SECONDS = 600;
+  const times = { ...defaultDifficultyTimes(), ...saved.difficultyTimes };
+  const readTimes = () => {
+    difficultyBox.querySelectorAll("input[type=number]").forEach((input) => {
+      const value = Math.round(Number(input.value));
+      if (value >= MIN_SECONDS && value <= MAX_SECONDS) times[input.name] = value;
+    });
+    return times;
+  };
+
+  /**
+   * One checkbox chip per value; checked if the saved list is empty ("all") or includes it.
+   * `addon(value)` (optional) returns an element shown next to the chip.
+   */
+  const fillChips = (box, values, savedList, describe, addon) => {
+    const keep = new Set([...box.querySelectorAll("input[type=checkbox]:checked")].map((i) => i.value));
     const hadChips = box.children.length > 0;
     box.replaceChildren();
     values.forEach((value) => {
@@ -769,14 +859,39 @@ const setupLibrarySettings = () => {
         : savedList.length === 0 || savedList.includes(value);
       input.addEventListener("change", updateCount);
       chip.append(input, text);
-      box.appendChild(chip);
+      if (addon) {
+        const row = el("div", "diff-row");
+        row.append(chip, addon(value));
+        box.appendChild(row);
+      } else {
+        box.appendChild(chip);
+      }
     });
     box.dataset.known = values.join("|");
   };
 
+  /** Seconds field for one difficulty. */
+  const timeField = (difficulty) => {
+    const wrap = el("label", "time-field");
+    const input = el("input", "time-input");
+    input.type = "number";
+    input.name = difficulty;
+    input.min = MIN_SECONDS;
+    input.max = MAX_SECONDS;
+    input.step = 5;
+    input.value = times[difficulty] || difficultyInfo(difficulty).seconds;
+    input.setAttribute("aria-label", `${difficultyInfo(difficulty).label} (${t("lib.secondsUnit")})`);
+    input.addEventListener("change", () => {
+      readTimes();
+      input.value = times[difficulty] || difficultyInfo(difficulty).seconds; // undo invalid input
+    });
+    wrap.append(input, el("span", "muted", t("lib.secondsUnit")));
+    return wrap;
+  };
+
   // Empty list = all values (so new values in a regenerated deck are included).
   const checkedValues = (box) => {
-    const inputs = [...box.querySelectorAll("input")];
+    const inputs = [...box.querySelectorAll("input[type=checkbox]")];
     const checked = inputs.filter((i) => i.checked).map((i) => i.value);
     return { list: checked.length === inputs.length ? [] : checked, none: checked.length === 0 };
   };
@@ -788,7 +903,7 @@ const setupLibrarySettings = () => {
       difficulties: checkedValues(difficultyBox).list,
       noNames: $("#noNamesCheckbox").checked,
     },
-    pointsByDifficulty: $("#difficultyPointsCheckbox").checked,
+    difficultyTimes: { ...readTimes() },
   });
 
   function updateCount() {
@@ -797,9 +912,9 @@ const setupLibrarySettings = () => {
     const { total, unplayed } = nothingChecked ? { total: 0, unplayed: 0 }
       : countCards(deck, getSettings().libraryFilters);
     deckCount.textContent = t("lib.count", { total: formatNumber(total), unplayed: formatNumber(unplayed) });
-    const tooFew = total < PICKS_PER_ROUND;
+    const tooFew = total < LIBRARY_CARDS_PER_ROUND;
     deckCount.classList.toggle("warn", tooFew);
-    if (tooFew) deckCount.textContent += t("lib.tooFew", { n: PICKS_PER_ROUND });
+    if (tooFew) deckCount.textContent += t("lib.tooFew", { n: LIBRARY_CARDS_PER_ROUND });
     startGameBtn.disabled = tooFew;
   }
 
@@ -817,9 +932,10 @@ const setupLibrarySettings = () => {
         const info = categoryInfo(value);
         return { text: `${info.icon} ${info.label}`, color: info.color };
       });
+      readTimes(); // keep typed times when switching decks
       fillChips(difficultyBox, deck.difficulties, savedFilters.difficulties, (value) => ({
         text: difficultyInfo(value).label,
-      }));
+      }), timeField);
       updateCount();
     } catch (error) {
       console.error("Could not load deck:", error);
@@ -896,6 +1012,8 @@ const loadWordsAndGo = async () => {
     game.selectedIndices = [];
     game.chosenIndex = null;
     game.lastResult = null;
+    game.lastPoints = null;
+    game.bet = "none";
     setState(GameStates.SELECTION);
     return true;
   } catch (error) {
@@ -905,7 +1023,7 @@ const loadWordsAndGo = async () => {
   }
 };
 
-/** Badges for a library card: category, difficulty (+points), English notice. */
+/** Badges for a library card: category, difficulty (+ acting time), English notice. */
 const createCardMeta = (word) => {
   const meta = el("div", "card-meta");
   if (!word.category) return meta; // Wikipedia words have no metadata
@@ -915,48 +1033,113 @@ const createCardMeta = (word) => {
   meta.appendChild(catBadge);
   if (word.difficulty) {
     const diff = difficultyInfo(word.difficulty);
-    const pts = game.pointsByDifficulty ? ` · ${t("lib.pointsShort", { n: word.points })}` : "";
-    meta.appendChild(el("span", "badge", `${diff.label}${pts}`));
+    meta.appendChild(el("span", "badge", `${diff.label} · ${t("lib.seconds", { n: cardSeconds(word) })}`));
   }
   if (word.latin) meta.appendChild(el("span", "badge latin", t("lib.latin")));
   return meta;
 };
 
-/**
- * Build one word row (title + "?" button).
- * `onReplaced` (library only): if given, the "?" dialog offers "report & replace"
- * and this is called after the card at `index` was replaced.
- */
-const createOption = (word, index, onReplaced) => {
+/** "?" button. `onClick` opens the word's info dialog. */
+const createInfoButton = (onClick) => {
+  const info = el("button", "info", "?");
+  info.type = "button";
+  info.setAttribute("aria-label", t("info.aria"));
+  info.addEventListener("click", (event) => {
+    event.stopPropagation(); // don't also select the word
+    onClick();
+  });
+  return info;
+};
+
+/** Wikipedia Freaks: one word row (title + "?" with the article intro). */
+const createOption = (word) => {
   const option = el("div", "option");
   const main = el("div", "title");
   main.appendChild(el("div", null, word.title));
-  if (word.category) main.appendChild(createCardMeta(word));
-  option.appendChild(main);
-
-  const info = el("button", "info", "?");
-  info.setAttribute("aria-label", t("info.aria"));
-  info.addEventListener("click", (event) => {
-    event.stopPropagation();
-    if (!isLibraryGame()) {
-      showModal(word.title, word.extract);
-      return;
-    }
-    const text = word.hint ? t("lib.hintPrefix", { hint: word.hint }) : "";
-    const actions = onReplaced
-      ? [{
-          label: t("lib.reportReplace"),
-          onClick: async () => {
-            if (await reportAndReplaceCard(index)) onReplaced();
-          },
-        }]
-      : [];
-    showModal(word.title, text, actions);
-  });
-  option.appendChild(info);
+  option.append(main, createInfoButton(() => showModal(word.title, word.extract)));
   return option;
 };
 
+/**
+ * Curated Library: one card tile for the pick screen (image or category icon,
+ * title, badges, "?" with hint + report & replace).
+ * `onReplaced` is called after the card at `index` was reported and replaced.
+ */
+const createPickCard = (word, index, onReplaced) => {
+  const tile = el("div", "pick-card");
+  const cat = categoryInfo(word.category);
+  tile.style.setProperty("--card-color", cat.color);
+
+  // Images are decoration only: fall back to the category icon.
+  const icon = el("div", "pick-icon", cat.icon);
+  if (word.image) {
+    const image = el("img", "pick-image");
+    image.src = word.image;
+    image.alt = "";
+    image.addEventListener("error", () => image.replaceWith(icon));
+    tile.appendChild(image);
+  } else {
+    tile.appendChild(icon);
+  }
+
+  const body = el("div", "pick-body");
+  body.append(el("div", "pick-title", word.title), createCardMeta(word));
+  tile.appendChild(body);
+
+  tile.appendChild(createInfoButton(() => {
+    const text = word.hint ? t("lib.hintPrefix", { hint: word.hint }) : "";
+    showModal(word.title, text, [{
+      label: t("lib.reportReplace"),
+      onClick: async () => {
+        if (await reportAndReplaceCard(index)) onReplaced();
+      },
+    }]);
+  }));
+  return tile;
+};
+
+/** Curated Library: the active team picks 1 of 2 cards for the other team. */
+const renderPick = () => {
+  setTeamIndicator(t("selection.indicator", { team: game.activeTeam.name }), game.activeTeam.color);
+  const node = templates.pick.content.cloneNode(true);
+  render(node);
+
+  game.chosenIndex = null;
+  // Cards count as played once they are shown (no repeats across sessions).
+  markCardsPlayed(game.words.map((w) => w.id));
+
+  $("#pickTitle").textContent = t("pick.title", { team: game.activeTeam.name });
+  $("#pickHelp").textContent = t("pick.help", { opp: game.opponentTeam.name });
+  const list = $("#pickList");
+  const commitBtn = $("#commitPickBtn");
+
+  const drawCards = () => {
+    list.replaceChildren();
+    game.words.forEach((word, index) => {
+      const tile = createPickCard(word, index, () => {
+        if (game.chosenIndex === index) game.chosenIndex = null; // it's a new card now
+        commitBtn.disabled = game.chosenIndex === null;
+        drawCards();
+      });
+      tile.classList.toggle("selected", game.chosenIndex === index);
+      tile.addEventListener("click", () => {
+        game.chosenIndex = index;
+        commitBtn.disabled = false;
+        list.querySelectorAll(".pick-card").forEach((card, i) => card.classList.toggle("selected", i === index));
+      });
+      list.appendChild(tile);
+    });
+  };
+  drawCards();
+
+  commitBtn.addEventListener("click", () => {
+    if (game.chosenIndex === null) return;
+    game.bet = "none";
+    setState(GameStates.BRIEFING);
+  });
+};
+
+/** Wikipedia Freaks: the active team picks 3 of 10 words. */
 const renderSelection = () => {
   setTeamIndicator(t("selection.indicator", { team: game.activeTeam.name }), game.activeTeam.color);
   const node = templates.selection.content.cloneNode(true);
@@ -965,28 +1148,15 @@ const renderSelection = () => {
   // Each render starts with a clean selection (also after resume).
   game.selectedIndices = [];
 
-  // Library: cards count as played once they are shown (no repeats across sessions).
-  if (isLibraryGame()) markCardsPlayed(game.words.map((w) => w.id));
-
   const list = $("#optionsList");
   $("#selectionTitle").textContent = t("selection.title", { team: game.activeTeam.name, n: PICKS_PER_ROUND });
   $("#selectionHelp").textContent = t("selection.help", { n: PICKS_PER_ROUND });
 
-  const drawList = () => {
-    list.replaceChildren();
-    game.words.forEach((word, index) => {
-      const option = createOption(word, index, isLibraryGame() ? () => {
-        // The replaced card is a new card: drop it from the selection.
-        game.selectedIndices = game.selectedIndices.filter((i) => i !== index);
-        $("#commitSelectionBtn").disabled = game.selectedIndices.length !== PICKS_PER_ROUND;
-        drawList();
-      } : null);
-      if (game.selectedIndices.includes(index)) option.classList.add("highlight");
-      option.addEventListener("click", () => toggleSelection(option, index));
-      list.appendChild(option);
-    });
-  };
-  drawList();
+  game.words.forEach((word, index) => {
+    const option = createOption(word);
+    option.addEventListener("click", () => toggleSelection(option, index));
+    list.appendChild(option);
+  });
 
   $("#commitSelectionBtn").addEventListener("click", () => {
     if (game.selectedIndices.length !== PICKS_PER_ROUND) return;
@@ -1023,7 +1193,7 @@ const renderChoice = () => {
   $("#choiceHelp").textContent = t("choice.help", { n: PICKS_PER_ROUND });
 
   game.words.forEach((word, index) => {
-    const option = createOption(word, index);
+    const option = createOption(word);
     const isSelected = game.selectedIndices.includes(index);
     option.classList.add(isSelected ? "highlight" : "disabled");
     if (isSelected) {
@@ -1078,6 +1248,7 @@ const renderBriefing = () => {
       if (await reportAndReplaceCard(game.chosenIndex)) renderBriefing();
       else reportBtn.disabled = false;
     });
+    renderBetOptions(word);
   }
 
   const image = $("#briefImage");
@@ -1089,11 +1260,66 @@ const renderBriefing = () => {
   }
 
   $("#startRoundBtn").addEventListener("click", () => {
-    game.timerRemaining = game.roundDuration;
-    game.isPaused = false;
-    game.endedEarly = false;
+    const seconds = isLibraryGame() ? betSeconds(cardSeconds(word), game.bet) : game.roundDuration;
+    startTimer(seconds);
     setState(GameStates.TIMER);
   });
+};
+
+/** Library: the actor chooses to bet part of the time (or not) before starting. */
+const renderBetOptions = (word) => {
+  $("#betBlock").classList.remove("hidden");
+  const box = $("#betOptions");
+  const seconds = cardSeconds(word);
+  BETS.forEach((bet) => {
+    const btn = el("button", "bet-btn");
+    btn.type = "button";
+    btn.dataset.bet = bet.key;
+    btn.append(
+      el("span", "bet-name", t(`bet.${bet.key}`)),
+      el("span", "bet-detail", t("bet.detail", { seconds: betSeconds(seconds, bet.key), bonus: bet.bonus }))
+    );
+    const selected = game.bet === bet.key;
+    btn.classList.toggle("selected", selected);
+    btn.setAttribute("aria-pressed", String(selected));
+    btn.addEventListener("click", () => {
+      game.bet = bet.key;
+      game.save();
+      box.querySelectorAll(".bet-btn").forEach((b) => {
+        const on = b.dataset.bet === bet.key;
+        b.classList.toggle("selected", on);
+        b.setAttribute("aria-pressed", String(on));
+      });
+    });
+    box.appendChild(btn);
+  });
+};
+
+// --- Timer (real clock: Date.now(), so sleep, background tabs and reloads don't slow it) ---
+
+const startTimer = (seconds) => {
+  game.turnSeconds = seconds;
+  game.timerEndsAt = Date.now() + seconds * 1000;
+  game.timerLeftMs = seconds * 1000;
+  game.isPaused = false;
+  game.endedEarly = false;
+};
+
+const timeLeftMs = () =>
+  game.isPaused ? game.timerLeftMs : Math.max(0, game.timerEndsAt - Date.now());
+
+/** Whole seconds left, as shown on screen (counts 45, 44, ... 1, then time's up). */
+const secondsLeft = () => Math.ceil(timeLeftMs() / 1000);
+
+const setPaused = (paused) => {
+  if (paused === game.isPaused) return;
+  if (paused) {
+    game.timerLeftMs = timeLeftMs();
+  } else {
+    game.timerEndsAt = Date.now() + game.timerLeftMs;
+  }
+  game.isPaused = paused;
+  game.save();
 };
 
 const renderTimer = () => {
@@ -1101,8 +1327,8 @@ const renderTimer = () => {
   const node = templates.timer.content.cloneNode(true);
   render(node);
 
-  // Start prefetching words for the next round
-  if (game.round < game.totalRounds && !prefetch) startPrefetch();
+  // Start prefetching words for the next turn
+  if (!isLastTurn() && !prefetch) startPrefetch();
 
   const timerDisplay = $("#timerDisplay");
   const sneakDisplay = $("#sneakDisplay");
@@ -1112,33 +1338,27 @@ const renderTimer = () => {
   $("#sneakLatin").classList.toggle("hidden", !word.latin);
   pauseBtn.textContent = game.isPaused ? t("timer.resume") : t("timer.pause");
 
-  const updateTimer = () => {
-    timerDisplay.textContent = formatTime(game.timerRemaining);
-  };
+  const bet = betInfo(game.bet);
+  if (isLibraryGame() && bet.bonus) {
+    const betLine = $("#timerBet");
+    betLine.textContent = t("timer.bet", { bet: t(`bet.${bet.key}`), bonus: bet.bonus });
+    betLine.classList.remove("hidden");
+  }
 
   const tick = () => {
-    if (game.isPaused) return;
-    game.timerRemaining -= 1;
-    if (game.timerRemaining <= 0) {
-      game.timerRemaining = 0;
-      updateTimer();
-      endRound("timeout");
-      return;
-    }
-    updateTimer();
-    game.save(); // so a reload resumes with the right time left
+    timerDisplay.textContent = formatTime(secondsLeft());
+    if (timeLeftMs() <= 0) endRound("timeout");
   };
 
-  updateTimer();
   clearInterval(timerId);
-  timerId = setInterval(tick, 1000);
+  timerId = setInterval(tick, 250);
+  tick();
 
   $("#foundBtn").addEventListener("click", () => endRound("success"));
   $("#abortBtn").addEventListener("click", () => endRound("fail"));
   pauseBtn.addEventListener("click", () => {
-    game.isPaused = !game.isPaused;
+    setPaused(!game.isPaused);
     pauseBtn.textContent = game.isPaused ? t("timer.resume") : t("timer.pause");
-    game.save();
   });
 
   const sneakBtn = $("#sneakBtn");
@@ -1166,17 +1386,21 @@ const endRound = (result) => {
   clearInterval(timerId);
   timerId = null;
 
-  game.elapsedThisRound = game.roundDuration - game.timerRemaining;
+  const left = result === "timeout" ? 0 : secondsLeft();
+  game.isPaused = false;
+  game.elapsedThisRound = Math.max(0, game.turnSeconds - left);
   game.opponentTeam.time += game.elapsedThisRound;
   game.endedEarly = result !== "timeout";
   game.lastResult = result;
+  game.lastPoints = null;
 
-  if (result === "success") {
-    game.opponentTeam.score += roundPoints();
-  }
+  if (result === "success") awardPoints(left);
 
   setState(GameStates.RESULT);
 };
+
+/** "100 base + 12s left + 175 bet" for library points, else "". */
+const pointsBreakdown = (points) => (points?.base ? t("points.breakdown", points) : "");
 
 const renderResult = () => {
   const node = templates.result.content.cloneNode(true);
@@ -1193,7 +1417,7 @@ const renderResult = () => {
 
     const foundBtn = el("button", "success", t("result.found"));
     foundBtn.addEventListener("click", () => {
-      game.opponentTeam.score += roundPoints();
+      awardPoints(0); // found just as time ran out
       game.lastResult = "success";
       setState(GameStates.SCOREBOARD);
     });
@@ -1207,11 +1431,13 @@ const renderResult = () => {
     actions.append(foundBtn, failBtn);
   } else {
     setTeamIndicator(t("result.roundComplete"), game.opponentTeam.color);
-    const points = roundPoints();
-    resultTitle.textContent = game.lastResult === "success"
-      ? t("result.success", { n: points })
+    const success = game.lastResult === "success";
+    resultTitle.textContent = success
+      ? t("result.success", { n: game.lastPoints?.total ?? 1 })
       : t("result.failed");
-    resultText.textContent = t("result.took", { time: formatTime(game.elapsedThisRound) });
+    const took = t("result.took", { time: formatTime(game.elapsedThisRound) });
+    const breakdown = success ? pointsBreakdown(game.lastPoints) : "";
+    resultText.textContent = breakdown ? `${breakdown}. ${took}` : took;
 
     const continueBtn = el("button", "primary", t("continue"));
     continueBtn.addEventListener("click", () => setState(GameStates.SCOREBOARD));
@@ -1236,23 +1462,37 @@ const renderScoreboard = () => {
 
   const summary = $("#scoreSummary");
   renderTeamScores(summary);
-  summary.appendChild(el("div", null, t("score.round", { round: game.round, total: game.totalRounds })));
+  summary.appendChild(el("div", null, t("score.round", { round: currentRound(), total: game.totalRounds })));
 
-  $("#roundBreakdown").textContent = t("score.lastRound", { time: formatTime(game.elapsedThisRound) });
+  // Last turn: points (library) and time.
+  const breakdown = $("#roundBreakdown");
+  if (isLibraryGame()) {
+    const team = game.opponentTeam.name;
+    const line = game.lastResult === "success" && game.lastPoints
+      ? t("score.lastPoints", {
+          team,
+          n: formatNumber(game.lastPoints.total),
+          breakdown: pointsBreakdown(game.lastPoints),
+        })
+      : t("score.lastFail", { team });
+    breakdown.appendChild(el("div", "points-line", line));
+  }
+  breakdown.appendChild(el("div", null, t("score.lastRound", { time: formatTime(game.elapsedThisRound) })));
+
   $("#passMessage").textContent = t("score.pass", { team: game.activeTeam.name });
 
   const nextRoundBtn = $("#nextRoundBtn");
   nextRoundBtn.addEventListener("click", async () => {
-    if (game.round >= game.totalRounds) {
+    if (isLastTurn()) {
       setState(GameStates.FINAL);
       return;
     }
     nextRoundBtn.disabled = true;
-    game.round += 1;
+    game.turn += 1;
     game.swapTeams();
     if (!(await loadWordsAndGo())) {
       // Undo so the scoreboard is unchanged and "Next Round" can be retried.
-      game.round -= 1;
+      game.turn -= 1;
       game.swapTeams();
       setState(GameStates.SCOREBOARD);
     }

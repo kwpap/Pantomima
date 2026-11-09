@@ -34,11 +34,36 @@ const CARD_CATEGORIES = {
 };
 const DEFAULT_CATEGORY_INFO = { icon: "🃏", color: "#b0b0b0" };
 
-// Labels: "diff.<name>" in i18n.js.
+// Labels: "diff.<name>" in i18n.js. `seconds` = default acting time (changeable in setup).
 const CARD_DIFFICULTIES = {
-  easy: { points: 1 },
-  medium: { points: 2 },
-  hard: { points: 3 },
+  easy: { seconds: 45 },
+  medium: { seconds: 60 },
+  hard: { seconds: 90 },
+};
+const DEFAULT_SECONDS = 60; // for difficulties a future deck may add
+
+const defaultDifficultyTimes = () =>
+  Object.fromEntries(Object.entries(CARD_DIFFICULTIES).map(([key, d]) => [key, d.seconds]));
+
+// --- Scoring (Curated Library) ---
+// Found: BASE_POINTS + seconds left + bet bonus. Not found: 0.
+// A bet gives up part of the acting time (`cut`) for a bonus.
+const BASE_POINTS = 100;
+const BETS = [
+  { key: "none", cut: 0, bonus: 0 },
+  { key: "third", cut: 1 / 3, bonus: 75 },
+  { key: "half", cut: 1 / 2, bonus: 175 },
+];
+const betInfo = (key) => BETS.find((b) => b.key === key) || BETS[0];
+
+/** Acting time after a bet, in whole seconds (22.5 rounds to 23). */
+const betSeconds = (seconds, betKey) => Math.round(seconds * (1 - betInfo(betKey).cut));
+
+/** Points for a found card: { total, base, time, bonus }. */
+const libraryPoints = (secondsLeft, betKey) => {
+  const bonus = betInfo(betKey).bonus;
+  const time = Math.max(0, Math.round(secondsLeft));
+  return { total: BASE_POINTS + time + bonus, base: BASE_POINTS, time, bonus };
 };
 
 const categoryInfo = (category) => ({
@@ -47,7 +72,7 @@ const categoryInfo = (category) => ({
   label: hasText(`cat.${category}`) ? t(`cat.${category}`) : category,
 });
 const difficultyInfo = (difficulty) => ({
-  points: CARD_DIFFICULTIES[difficulty]?.points || 1,
+  seconds: CARD_DIFFICULTIES[difficulty]?.seconds || DEFAULT_SECONDS,
   label: hasText(`diff.${difficulty}`) ? t(`diff.${difficulty}`) : difficulty || "",
 });
 
@@ -124,7 +149,7 @@ const exportReportedCards = () =>
 
 /**
  * Convert a deck card to the game's word shape. Returns null for unusable cards.
- * Game word shape: { id, title, extract, image, category, difficulty, latin, hasName, points, hint }
+ * Game word shape: { id, title, extract, image, category, difficulty, latin, hasName, hint }
  */
 const normalizeCard = (raw) => {
   if (!raw || typeof raw.id !== "string" || typeof raw.card_text !== "string") return null;
@@ -140,7 +165,6 @@ const normalizeCard = (raw) => {
     difficulty: typeof raw.difficulty === "string" ? raw.difficulty : "",
     latin: raw.latin_script === true,
     hasName: raw.contains_name === true,
-    points: difficultyInfo(raw.difficulty).points,
   };
 };
 
@@ -204,21 +228,44 @@ const countCards = (deck, filters) => {
 };
 
 /**
- * Deal `count` random cards that have not been played yet.
+ * Take `count` cards from a shuffled list, preferring difficulties not used yet
+ * (by `hand` or earlier picks), so a choice between cards is a real choice.
+ */
+const takeVaried = (shuffled, count, hand) => {
+  const used = new Set(hand.map((c) => c.difficulty));
+  const fresh = [];
+  const rest = [];
+  shuffled.forEach((card) => {
+    if (used.has(card.difficulty)) {
+      rest.push(card);
+    } else {
+      used.add(card.difficulty);
+      fresh.push(card);
+    }
+  });
+  return [...fresh, ...rest].slice(0, count);
+};
+
+/**
+ * Deal `count` random cards that have not been played yet, with different
+ * difficulties where the filters allow it.
  * When the filtered deck runs out, its played history is forgotten and dealing
- * continues from a fresh shuffle. `excludeIds` are never dealt (e.g. cards on screen).
+ * continues from a fresh shuffle.
+ * options.excludeIds: never dealt (e.g. cards on screen).
+ * options.others: cards that stay on screen; new cards avoid their difficulties.
  * Returns { cards, reshuffled }.
  */
-const dealCards = (deck, filters, count, excludeIds = new Set()) => {
+const dealCards = (deck, filters, count, { excludeIds = new Set(), others = [] } = {}) => {
   const pool = filterCards(deck.cards, filters).filter((c) => !excludeIds.has(c.id));
-  const hand = shuffle(pool.filter((c) => !playedIds.has(c.id))).slice(0, count);
+  const hand = takeVaried(shuffle(pool.filter((c) => !playedIds.has(c.id))), count, others);
   let reshuffled = false;
   if (hand.length < count && pool.length > hand.length) {
     reshuffled = true;
     pool.forEach((c) => playedIds.delete(c.id));
     savePlayed();
     const inHand = new Set(hand.map((c) => c.id));
-    hand.push(...shuffle(pool.filter((c) => !inHand.has(c.id))).slice(0, count - hand.length));
+    const more = shuffle(pool.filter((c) => !inHand.has(c.id)));
+    hand.push(...takeVaried(more, count - hand.length, [...others, ...hand]));
   }
   return { cards: hand.map((c) => ({ ...c })), reshuffled };
 };

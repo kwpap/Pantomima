@@ -57,7 +57,8 @@
           <span data-i18n="setup.teamBColor"></span>
           <div id="teamBColorOptions" class="color-options"></div>
         </label>
-        <label>
+        <!-- Wikipedia only: in the Curated Library the time comes from the card's difficulty -->
+        <label id="roundDurationField">
           <span data-i18n="setup.roundDuration"></span>
           <input id="roundDuration" type="number" min="30" max="300" value="90" />
         </label>
@@ -93,15 +94,12 @@
         </fieldset>
         <fieldset class="filter-group">
           <legend data-i18n="lib.difficulty"></legend>
-          <div id="difficultyFilters" class="chips"></div>
+          <!-- One row per difficulty: checkbox chip + acting time in seconds -->
+          <div id="difficultyFilters" class="diff-rows"></div>
         </fieldset>
         <label class="checkbox-label">
           <input id="noNamesCheckbox" type="checkbox" />
           <span data-i18n="lib.noNames"></span>
-        </label>
-        <label class="checkbox-label">
-          <input id="difficultyPointsCheckbox" type="checkbox" checked />
-          <span data-i18n="lib.points"></span>
         </label>
         <div id="deckCount" class="deck-count muted" data-i18n="lib.loading"></div>
         <div class="library-tools">
@@ -129,6 +127,18 @@
     </div>
   </template>
 
+  <!-- Curated Library: the active team picks 1 of 2 cards for the other team -->
+  <template id="pickTemplate">
+    <div class="card">
+      <h2 id="pickTitle"></h2>
+      <p id="pickHelp" class="muted"></p>
+      <div id="pickList" class="pick-grid"></div>
+      <div class="actions">
+        <button id="commitPickBtn" class="primary" disabled data-i18n="commit"></button>
+      </div>
+    </div>
+  </template>
+
   <template id="choiceTemplate">
     <div class="card">
       <h2 id="choiceTitle"></h2>
@@ -149,6 +159,12 @@
       <img id="briefImage" class="brief-image hidden" alt="" />
       <div class="excerpt" id="briefExcerpt"></div>
       <button id="hintBtn" type="button" class="ghost hidden" data-i18n="lib.hint"></button>
+      <!-- Curated Library: bet part of the time for a bonus -->
+      <div id="betBlock" class="bet-block hidden">
+        <h3 data-i18n="bet.title"></h3>
+        <p class="muted" data-i18n="bet.help"></p>
+        <div id="betOptions" class="bet-options"></div>
+      </div>
       <div class="actions">
         <button id="startRoundBtn" class="primary" data-i18n="briefing.start"></button>
         <button id="reportCardBtn" type="button" class="ghost hidden" data-i18n="lib.reportReplace"></button>
@@ -160,6 +176,7 @@
     <div class="card">
       <h2 data-i18n="timer.title"></h2>
       <div id="timerDisplay" class="timer">00:00</div>
+      <p id="timerBet" class="muted center-text hidden"></p>
       <div id="sneakDisplay" class="sneak hidden">
         <div id="sneakWord"></div>
         <div id="sneakLatin" class="latin-notice hidden" data-i18n="lib.latin"></div>
