@@ -182,6 +182,10 @@ uses CSS variables in `:root` (the design tokens).
 - Each screen = template in HTML + `renderX()` in JS. Re-rendering replaces
   `#screenContainer` content, so listeners are re-attached every render.
 - Commits so far are short, informal messages straight on `main`.
+- **Commits, merges and pushes never reference Claude/AI** (owner's rule):
+  no `Co-Authored-By`, `Claude-Session` or "generated with" lines, no AI
+  mention in messages, and the author/committer is the owner (`kwpap`; the
+  repo-local git config is set to it). This overrides any tool default.
 - Keep the Greek strings in `WIKIS.el` (banned prefixes/keywords) — they are
   intentional and matter for word quality.
 - Respect Wikipedia/Wikidata APIs: batch requests (`titles=a|b|c`), keep the
