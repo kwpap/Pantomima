@@ -59,17 +59,36 @@ Other colour is small and has a second cue:
 - difficulty: 1 / 2 / 3 filled squares (green / yellow / red) + the name
 - numbers that matter (rounds, bonus): yellow, monospace
 
-### Motion: cube turn
+### Motion
 
-Changing screen turns the whole screen like a cube face (rotate −90° around Y,
-600ms, `cubic-bezier(.65,0,.35,1)`). Skipped when the OS asks for reduced
-motion, and when the same screen is redrawn. Code: `render()` in `app.js`,
-`.cube` in `style.css`. In Compose: `graphicsLayer { rotationY; cameraDistance }`
-on the outgoing and incoming screens, pivoting on the shared edge.
+Clean and quick; the cube shows only in the logo. Code: `render()` in
+`app.js`, the "Motion" block in `style.css`. Uses the View Transitions API
+(Chrome 111+, Safari 18+); older browsers get a plain slide-in; nothing when
+the OS asks for reduced motion.
 
-Two alternatives were mocked up and can be swapped in
-(`reference/motion-layer-turn.dc.html`: 4 horizontal layers turn one after the
-other; `reference/motion-sticker-flip.dc.html`: 9 stickers flip in a wave).
+- **Slide:** forward = the new screen comes in from the right (48px + fade,
+  340ms, `cubic-bezier(.2,.8,.2,1)`), the old one leaves left (40px, 200ms).
+  Back = mirrored. The header stays put.
+- **Shared elements:** the chosen card's title (or Wikipedia word) flies into
+  the briefing's word (`card-word`); the screen's main button morphs into the
+  next screen's main button (`main-action`); the header team chip morphs
+  (`team-chip`).
+- **Logo turn:** the 3×3 logo turns a quarter (+90° forward, −90° back),
+  520ms with a slight overshoot.
+- **Back:** only where it makes sense, currently Setup → version picker.
+  Swipe right anywhere on the screen (it follows the finger; past 30% of the
+  width or a flick = back), the "version" chip, or the system/browser back.
+  Mid-game there is no back on purpose (it would undo picks or show the card
+  to the wrong team).
+- In Compose: `AnimatedContent` with `slideInHorizontally + fadeIn`,
+  `SharedTransitionLayout` + `Modifier.sharedElement` for the title and button,
+  `animateFloatAsState` for the logo, `PredictiveBackHandler` for the swipe.
+- Haptics: planned (Android `navigator.vibrate` now, real haptics in the app):
+  tick on taps, double pulse on "Βρέθηκε!", buzz at 10s left, tick each of the
+  last 5 seconds, long buzz at time up.
+
+Earlier ideas, kept in `reference/`: whole-screen cube turn
+(`motion-cube-turn.dc.html`, dropped: felt dated), layer turn, sticker flip.
 
 ## E · "Editor" — planned easter egg (not built)
 

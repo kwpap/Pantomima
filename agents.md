@@ -143,12 +143,18 @@ not already in `others`/the hand), played history
 uses CSS variables in `:root` (the design tokens).
 
 **UI building blocks (app.js):**
-- `render(node)` wraps the screen in a `.face`, gives it `--team` (the colour
-  of the team holding the phone, from the last `setTeamIndicator(text, color)`
-  call; none = white) and fills `[data-round]`. When `setState()` moved to a
-  *different* state it turns the old and new face like a cube (600 ms, off for
-  reduced motion). During the turn the old face is `inert` and loses its ids,
-  so `$("#id")` always finds the new screen. Style with classes, not ids.
+- `render(node)` wraps the screen in a `.face`, fills `[data-round]` and shows
+  it with a slide (View Transitions API; see design/README.md "Motion"). The
+  new screen may be inserted a frame later, so `$()` looks in the screen being
+  built first (`renderRoot`): keep using `$("#id")` right after `render()`.
+  `setTeamIndicator(text, color)` sets the header chip and the screen's
+  `--team` (colour of the team holding the phone; none = white); it is applied
+  together with the screen, so it may be called before or after `render()`.
+- `setState(state, { back: true })` = going back (mirrored slide, logo turns
+  back). Back exists only where `BACK_TARGETS` says (Setup → version picker):
+  swipe right, the version chip, or the system back (entering Setup pushes a
+  history entry). Shared-element names live in style.css (`card-word`,
+  `main-action`): each must be on at most one visible element.
 - `.primary` buttons take `--team`. `createSticker(color)`,
   `createSquares(level, color)` (difficulty), `enhanceStepper(input)` (number
   input → "− value +", the input stays hidden and still fires `change`).
@@ -283,6 +289,16 @@ Greek labels from the spec (Δράση, Χωρίς ονόματα, Στα αγγ
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-16** — Motion redone (user: the cube turn felt like Android 4).
+  Slide forward/back, shared elements (card title → briefing word, main button
+  → next main button, header chip), logo quarter turn. Swipe right / version
+  chip / system back from Setup → version picker. Release 4. Tested in Chromium
+  (touch emulation): slides, short swipe snaps back, long swipe and flick go
+  back, a swipe starting on a button doesn't press it, browser back, no back
+  mid-game, reduced motion (no animation), no View Transitions API (slide-in
+  fallback), a full turn into the next turn: no errors. Not tested on a real
+  iPhone (Safari < 18 gets the fallback). Haptics: planned, not built.
 
 - **2026-11-16** — Fix: blank screen on phones after a release (old cached
   `index.html` + new `app.js` → `setTeamIndicator` hit a missing element).
