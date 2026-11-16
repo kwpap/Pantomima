@@ -181,6 +181,12 @@ uses CSS variables in `:root` (the design tokens).
 - Respect Wikipedia/Wikidata APIs: batch requests (`titles=a|b|c`), keep the
   `origin=*` param, don't add tight retry loops.
 - Changing saved fields or game rules: bump `SAVE_VERSION`.
+- **Releasing (each push to `main`, which GitHub Pages serves):** bump the
+  release number in 3 places together: `APP_VERSION` in `app.js`,
+  `<meta name="app-version">` and every `?v=` in `index.html`. Pages lets
+  browsers cache files for 10 minutes; a phone with an old `index.html` and
+  new scripts used to show a blank screen. Now `app.js` sees the mismatch and
+  reloads once from `?v=<n>` (a fresh URL).
 
 ---
 
@@ -277,6 +283,13 @@ Greek labels from the spec (Δράση, Χωρίς ονόματα, Στα αγγ
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-16** — Fix: blank screen on phones after a release (old cached
+  `index.html` + new `app.js` → `setTeamIndicator` hit a missing element).
+  Added the release check at the top of `app.js` and `?v=` on assets (see
+  Conventions). Tested: stale index → reloads to `?v=3` and works; fresh → no
+  reload. Open: old browsers (Chrome < 111, Safari < 16.2) don't know
+  `color-mix()`, so team tints would be missing there.
 
 - **2026-11-16** — New look "D · Cube Pro" (chosen by the user from mockups
   A–E). Rewrote `index.html` templates and `style.css`; `app.js`: `render()`
