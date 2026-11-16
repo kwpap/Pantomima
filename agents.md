@@ -144,6 +144,10 @@ uses CSS variables in `:root`.
   `data-i18n-placeholder`, `data-i18n-aria`; `render()` applies them). JS:
   `t("key", { vars })`; plurals use a function value. Numbers: `formatNumber`.
   Category/difficulty labels are `cat.<name>` / `diff.<name>`.
+- **Greek voice (user's rule, 2026-11-16):** speak to one person in the
+  singular (Διάλεξε, Δοκίμασε, Πόνταρε, Δώσε). Use the plural only when the
+  text addresses a whole team (e.g. "{team}: Διαλέξτε {n}", "Αποφασίστε το
+  αποτέλεσμα"). A person plays a card; a team plays the game.
 - Each screen = template in HTML + `renderX()` in JS. Re-rendering replaces
   `#screenContainer` content, so listeners are re-attached every render.
 - Commits so far are short, informal messages straight on `main`.
@@ -248,6 +252,12 @@ Greek labels from the spec (Δράση, Χωρίς ονόματα, Στα αγγ
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-16** — Greek wording pass (user's picks). Singular "you" for a
+  single person (briefing "Η λέξη σου", "Δοκίμασε ξανά", "Δώσε το κινητό"),
+  plural kept for team prompts. New texts: "Πηγή λέξεων", "Πραγματικά λήμματα
+  της Wikipedia", library description, "Πόνταρε 1/3 / 1/2 του χρόνου",
+  "Κλεφτή ματιά". English unchanged.
 
 - **2026-11-09** — New rules (user's plan). Versions renamed "Wikipedia
   Freaks" (Wikipedia in the app's language: Greek or English, with English
