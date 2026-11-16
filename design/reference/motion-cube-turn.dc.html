@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Cube turn transition</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;700&amp;display=swap">
+<style>
+body{margin:0}
+.cube{position:absolute;inset:0;transform-style:preserve-3d;transform:translateZ(-195px)}
+.cube.turn{animation-name:cubeTurn;animation-timing-function:cubic-bezier(.65,0,.35,1);animation-fill-mode:forwards}
+@keyframes cubeTurn{from{transform:translateZ(-195px) rotateY(0deg)}to{transform:translateZ(-195px) rotateY(-90deg)}}
+.face{position:absolute;inset:0;box-sizing:border-box;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #08090A; perspective: 1300px; font-family: Inter, system-ui, sans-serif; color: #F3F3F1">
+  <div class="cube {{turnClass}}" style="animation-duration: {{dur}}ms">
+
+    <div class="face" style="transform: rotateY(0deg) translateZ(195px); background: #0F1012; border: 1px solid #2E3238; border-radius: 32px; padding: 28px 24px 24px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div aria-hidden="true" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; width: 22px; height: 22px">
+            <div style="background: #4C8DFF; border-radius: 2px"></div><div style="background: #F3F3F1; border-radius: 2px"></div><div style="background: #FF8A2B; border-radius: 2px"></div>
+            <div style="background: #30A46C; border-radius: 2px"></div><div style="background: #E5484D; border-radius: 2px"></div><div style="background: #FFD43B; border-radius: 2px"></div>
+            <div style="background: #F3F3F1; border-radius: 2px"></div><div style="background: #4C8DFF; border-radius: 2px"></div><div style="background: #30A46C; border-radius: 2px"></div>
+          </div>
+          <span style="font-weight: 700; font-size: 18px">Pantomima</span>
+        </div>
+        <span style="font: 700 12px 'JetBrains Mono', monospace; color: #A0A4AB">{{cur.k}}</span>
+      </div>
+      <div style="flex-grow: 1"></div>
+      <span style="font: 700 12px 'JetBrains Mono', monospace; color: #A0A4AB; letter-spacing: 0.06em">{{cur.title}}</span>
+      <span style="font-family: {{cur.bigFont}}; font-size: {{cur.bigSize}}px; line-height: 1.1; font-weight: 700; letter-spacing: -0.03em">{{cur.big}}</span>
+      <span style="font-size: 15px; color: #A0A4AB">{{cur.sub}}</span>
+      <div style="flex-grow: 1"></div>
+      <div style="height: 58px; border-radius: 16px; background: #F3F3F1; color: #0F1012; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{cur.cta}}</div>
+      <span style="text-align: center; font-size: 13px; color: #A0A4AB">Πάτα οπουδήποτε για την επόμενη οθόνη</span>
+    </div>
+
+    <div class="face" style="transform: rotateY(90deg) translateZ(195px); background: #0F1012; border: 1px solid #2E3238; border-radius: 32px; padding: 28px 24px 24px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <div aria-hidden="true" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; width: 22px; height: 22px">
+            <div style="background: #4C8DFF; border-radius: 2px"></div><div style="background: #F3F3F1; border-radius: 2px"></div><div style="background: #FF8A2B; border-radius: 2px"></div>
+            <div style="background: #30A46C; border-radius: 2px"></div><div style="background: #E5484D; border-radius: 2px"></div><div style="background: #FFD43B; border-radius: 2px"></div>
+            <div style="background: #F3F3F1; border-radius: 2px"></div><div style="background: #4C8DFF; border-radius: 2px"></div><div style="background: #30A46C; border-radius: 2px"></div>
+          </div>
+          <span style="font-weight: 700; font-size: 18px">Pantomima</span>
+        </div>
+        <span style="font: 700 12px 'JetBrains Mono', monospace; color: #A0A4AB">{{nxt.k}}</span>
+      </div>
+      <div style="flex-grow: 1"></div>
+      <span style="font: 700 12px 'JetBrains Mono', monospace; color: #A0A4AB; letter-spacing: 0.06em">{{nxt.title}}</span>
+      <span style="font-family: {{nxt.bigFont}}; font-size: {{nxt.bigSize}}px; line-height: 1.1; font-weight: 700; letter-spacing: -0.03em">{{nxt.big}}</span>
+      <span style="font-size: 15px; color: #A0A4AB">{{nxt.sub}}</span>
+      <div style="flex-grow: 1"></div>
+      <div style="height: 58px; border-radius: 16px; background: #F3F3F1; color: #0F1012; font-size: 17px; font-weight: 600; display: flex; align-items: center; justify-content: center">{{nxt.cta}}</div>
+      <span style="text-align: center; font-size: 13px; color: #A0A4AB">Πάτα οπουδήποτε για την επόμενη οθόνη</span>
+    </div>
+
+  </div>
+  <button aria-label="Επόμενη οθόνη" onClick="{{next}}" style="position: absolute; inset: 0; z-index: 2; border: 0; background: transparent; cursor: pointer"></button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"duration":{"editor":"range","default":700,"min":250,"max":1600,"step":50,"unit":"ms"},"$preview":{"width":390,"height":844}}'>
+const FACES = [
+  { k: '1/3', title: 'ΡΥΘΜΙΣΕΙΣ', big: '6 γύροι', bigFont: 'Inter, sans-serif', bigSize: 52, sub: 'Ομάδα Α · Ομάδα Β', cta: 'Έναρξη παιχνιδιού' },
+  { k: '2/3', title: 'ΟΜΑΔΑ Α: ΔΙΑΛΕΞΤΕ ΚΑΡΤΑ', big: 'Ελληνικός Καφές', bigFont: 'Inter, sans-serif', bigSize: 44, sub: 'Αντικείμενο · Μέτρια · 60″', cta: 'Επιβεβαίωση' },
+  { k: '3/3', title: 'ΧΡΟΝΟΣ', big: '0:27.41', bigFont: "'JetBrains Mono', monospace", bigSize: 76, sub: 'Πόνταρε 1/3 του χρόνου · +75 αν βρεθεί', cta: 'Βρέθηκε!' }
+];
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { i: 0, turning: false };
+  }
+  componentWillUnmount() {
+    clearTimeout(this.timer);
+  }
+  go() {
+    if (this.state.turning) return;
+    const dur = this.props.duration ?? 700;
+    this.setState({ turning: true });
+    this.timer = setTimeout(() => {
+      this.setState({ i: (this.state.i + 1) % FACES.length, turning: false });
+    }, dur + 30);
+  }
+  renderVals() {
+    const i = this.state.i;
+    return {
+      cur: FACES[i],
+      nxt: FACES[(i + 1) % FACES.length],
+      turnClass: this.state.turning ? 'turn' : '',
+      dur: this.props.duration ?? 700,
+      next: () => this.go()
+    };
+  }
+}
+</script>
+</body>
+</html>

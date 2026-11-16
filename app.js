@@ -95,14 +95,14 @@ const WIKIS = {
 };
 const wikiFor = (lang) => WIKIS[lang] || WIKIS[DEFAULT_LANG];
 
+// Team colours = the six faces of a cube (design/README.md). Names: "color.<name>" in i18n.js.
 const COLOR_PALETTE = [
-  { name: "Blue", hex: "#4aa3ff" },
-  { name: "Red", hex: "#fd5151" },
-  { name: "Orange", hex: "#e7913f" },
-  { name: "Purple", hex: "#b344ff" },
-  { name: "Lilac", hex: "#c8a2c8" },
-  { name: "Petrol", hex: "#0c8baa" },
-  { name: "Teal", hex: "#71cac3" },
+  { name: "Blue", hex: "#4C8DFF" },
+  { name: "Orange", hex: "#FF8A2B" },
+  { name: "Red", hex: "#FF6369" },
+  { name: "Green", hex: "#3DD68C" },
+  { name: "Yellow", hex: "#FFD43B" },
+  { name: "White", hex: "#F3F3F1" },
 ];
 const DEFAULT_TEAM_A_COLOR = COLOR_PALETTE[0].hex;
 const DEFAULT_TEAM_B_COLOR = COLOR_PALETTE[1].hex;
@@ -204,6 +204,7 @@ let prefetch = null; // { words, promise } for the next round's words
 
 const screenContainer = $("#screenContainer");
 const teamIndicator = $("#teamIndicator");
+const teamIndicatorText = $("#teamIndicatorText");
 const toast = $("#toast");
 const modal = $("#modal");
 const modalTitle = $("#modalTitle");
@@ -231,16 +232,110 @@ const showToast = (message) => {
   toastTimeout = setTimeout(() => toast.classList.remove("show"), 2500);
 };
 
+// --- Screens: each one is a "face"; changing screen turns the cube (design/README.md) ---
+
+const TURN_MS = 600; // keep in sync with --turn-ms in style.css
+const reducedMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+let screenTeamColor = null; // colour of the team holding the phone on the next rendered screen
+let animateNextRender = false; // set by setState() when the screen really changes
+let finishTurn = null; // ends a running turn early
+
+/** "Round 3 / 6" */
+const roundLabel = () => t("score.round", { round: currentRound(), total: game.totalRounds });
+
+/**
+ * Show a screen. The new screen gets the current team colour (--team), and the
+ * old one turns away like a cube face when the screen changed.
+ */
 const render = (node) => {
   applyTranslations(node);
-  screenContainer.innerHTML = "";
-  screenContainer.appendChild(node);
+  node.querySelectorAll("[data-round]").forEach((label) => (label.textContent = roundLabel()));
+  if (finishTurn) finishTurn();
+
+  const face = el("div", "face");
+  if (screenTeamColor) face.style.setProperty("--team", screenTeamColor);
+  face.appendChild(node);
+
+  const old = screenContainer.firstElementChild;
+  const animate = animateNextRender && old && !(reducedMotion && reducedMotion.matches);
+  animateNextRender = false;
+  if (!animate) {
+    screenContainer.replaceChildren(face);
+    return;
+  }
+
+  // The old screen stays visible during the turn: ids must stay unique for $().
+  old.inert = true;
+  old.querySelectorAll("[id]").forEach((n) => n.removeAttribute("id"));
+  const cube = el("div", "cube");
+  cube.style.setProperty("--half", `${screenContainer.clientWidth / 2}px`);
+  cube.append(old, face);
+  screenContainer.replaceChildren(cube);
+  screenContainer.classList.add("turning");
+  const timeout = setTimeout(() => finishTurn && finishTurn(), TURN_MS + 40);
+  finishTurn = () => {
+    clearTimeout(timeout);
+    finishTurn = null;
+    screenContainer.classList.remove("turning");
+    screenContainer.replaceChildren(face);
+  };
 };
 
+/** Header chip. `color` (a team's colour) also becomes the next screen's --team. */
 const setTeamIndicator = (text, color) => {
-  teamIndicator.textContent = text;
-  teamIndicator.style.borderColor = color || "var(--border)";
-  teamIndicator.style.color = color || "var(--text)";
+  screenTeamColor = color || null;
+  teamIndicatorText.textContent = text || "";
+  teamIndicator.classList.toggle("hidden", !text);
+  teamIndicator.classList.toggle("neutral", !color);
+  if (color) teamIndicator.style.setProperty("--team", color);
+  else teamIndicator.style.removeProperty("--team");
+};
+
+/** Small coloured square. */
+const createSticker = (color) => {
+  const sticker = el("span", "sticker");
+  sticker.setAttribute("aria-hidden", "true");
+  if (color) sticker.style.setProperty("--sticker", color);
+  return sticker;
+};
+
+/** Difficulty as `level` filled squares out of DIFFICULTY_LEVELS. */
+const createSquares = (level, color) => {
+  const squares = el("span", "squares");
+  squares.setAttribute("aria-hidden", "true");
+  if (color) squares.style.setProperty("--sticker", color);
+  for (let i = 0; i < DIFFICULTY_LEVELS; i++) squares.appendChild(el("i", i < level ? "on" : null));
+  return squares;
+};
+
+/**
+ * Turn a number input into "− value +". The input stays in the page (hidden)
+ * and keeps its value, min, max and step; it fires "change" like before.
+ */
+const enhanceStepper = (input, { suffix = "" } = {}) => {
+  const stepper = el("div", "stepper");
+  const output = el("output");
+  const label = input.getAttribute("aria-label") || "";
+  const step = Number(input.step) || 1;
+  const show = () => (output.textContent = `${input.value}${suffix}`);
+  const button = (text, delta, name) => {
+    const btn = el("button", null, text);
+    btn.type = "button";
+    btn.setAttribute("aria-label", `${label}: ${name}`.replace(/^: /, ""));
+    btn.addEventListener("click", () => {
+      const min = input.min === "" ? -Infinity : Number(input.min);
+      const max = input.max === "" ? Infinity : Number(input.max);
+      input.value = Math.min(max, Math.max(min, (Number(input.value) || 0) + delta));
+      show();
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    return btn;
+  };
+  stepper.append(button("−", -step, t("stepper.less")), output, button("+", step, t("stepper.more")));
+  input.hidden = true;
+  input.before(stepper);
+  show();
+  return stepper;
 };
 
 const formatTime = (seconds) => {
@@ -596,7 +691,7 @@ const showModal = (title, text, actions = []) => {
   modalText.textContent = text;
   modalActions.replaceChildren(
     ...actions.map(({ label, className, onClick }) => {
-      const btn = el("button", className || "ghost", label);
+      const btn = el("button", className || "secondary", label);
       btn.type = "button";
       btn.addEventListener("click", () => {
         hideModal();
@@ -627,7 +722,11 @@ const SAVED_STATES = new Set([
   GameStates.SCOREBOARD,
 ]);
 
+let shownState = null; // last state given to setState()
+
 const setState = (state) => {
+  animateNextRender = shownState !== null && shownState !== state;
+  shownState = state;
   game.state = state;
   if (SAVED_STATES.has(state)) game.save();
   switch (state) {
@@ -669,7 +768,7 @@ const setState = (state) => {
 
 /** First screen: pick the game version (word source), or resume a saved game. */
 const renderModeSelect = () => {
-  setTeamIndicator("Pantomima");
+  setTeamIndicator("");
   const node = templates.mode.content.cloneNode(true);
   render(node);
 
@@ -693,12 +792,14 @@ const renderModeSelect = () => {
   });
 
   const list = $("#modeList");
-  Object.entries(WORD_SOURCES).forEach(([key, source]) => {
+  Object.entries(WORD_SOURCES).forEach(([key, source], i) => {
     const btn = el("button", "mode-btn");
     btn.type = "button";
     btn.dataset.mode = key;
     btn.disabled = !source.available;
-    btn.append(el("span", "mode-name", t(source.labelKey)), el("span", "mode-desc", t(source.descriptionKey)));
+    const name = el("span", "mode-name");
+    name.append(createSticker(COLOR_PALETTE[i % COLOR_PALETTE.length].hex), t(source.labelKey));
+    btn.append(name, el("span", "mode-desc", t(source.descriptionKey)));
     btn.addEventListener("click", () => {
       game.mode = key;
       setState(GameStates.SETUP);
@@ -727,12 +828,13 @@ const renderModeSelect = () => {
 const renderSetup = () => {
   const mode = WORD_SOURCES[game.mode] ? game.mode : "wikipedia";
   const source = WORD_SOURCES[mode];
-  setTeamIndicator(t(source.labelKey));
+  setTeamIndicator("");
   const node = templates.setup.content.cloneNode(true);
   render(node);
 
-  $("#setupTitle").textContent = t("setup.title", { mode: t(source.labelKey) });
-  $("#changeModeBtn").addEventListener("click", () => setState(GameStates.MODE_SELECT));
+  const changeModeBtn = $("#changeModeBtn");
+  changeModeBtn.textContent = `${t(source.labelKey)} ›`;
+  changeModeBtn.addEventListener("click", () => setState(GameStates.MODE_SELECT));
 
   const categorySelect = $("#categorySelect");
   CATEGORIES.forEach(({ value, labelKey }) => {
@@ -745,32 +847,30 @@ const renderSetup = () => {
   // Library times come from the difficulty settings instead.
   if (library) $("#roundDurationField").classList.add("hidden");
 
-  let selectedTeamAColor = DEFAULT_TEAM_A_COLOR;
-  let selectedTeamBColor = DEFAULT_TEAM_B_COLOR;
+  enhanceStepper($("#totalRounds"));
+  enhanceStepper($("#roundDuration"), { suffix: "″" });
 
-  const createColorOptions = (containerId, defaultColor, onSelect) => {
-    const container = $(containerId);
-    COLOR_PALETTE.forEach((color) => {
-      const btn = el("button", "color-btn");
-      btn.style.backgroundColor = color.hex;
-      btn.title = t(`color.${color.name}`);
-      btn.type = "button";
-      if (color.hex === defaultColor) btn.classList.add("selected");
-      btn.addEventListener("click", (e) => {
-        e.preventDefault();
-        container.querySelectorAll(".color-btn").forEach((b) => b.classList.remove("selected"));
-        btn.classList.add("selected");
-        onSelect(color.hex);
-      });
-      container.appendChild(btn);
+  // Team tiles: the tile takes the team's colour; tapping the colour line
+  // moves to the next palette colour (never the other team's).
+  const teamColors = [DEFAULT_TEAM_A_COLOR, DEFAULT_TEAM_B_COLOR];
+  [["#teamATile", "#teamAColorBtn"], ["#teamBTile", "#teamBColorBtn"]].forEach(([tileId, btnId], i) => {
+    const tile = $(tileId);
+    const btn = $(btnId);
+    const draw = () => {
+      const color = COLOR_PALETTE.find((c) => c.hex === teamColors[i]);
+      tile.style.setProperty("--team", color.hex);
+      const name = t(`color.${color.name}`).toLocaleLowerCase(LANGUAGES[getLanguage()].locale);
+      btn.textContent = `${name} · ${t("setup.changeColor")}`;
+    };
+    btn.addEventListener("click", () => {
+      let next = COLOR_PALETTE.findIndex((c) => c.hex === teamColors[i]);
+      do {
+        next = (next + 1) % COLOR_PALETTE.length;
+      } while (COLOR_PALETTE[next].hex === teamColors[1 - i]);
+      teamColors[i] = COLOR_PALETTE[next].hex;
+      draw();
     });
-  };
-
-  createColorOptions("#teamAColorOptions", selectedTeamAColor, (color) => {
-    selectedTeamAColor = color;
-  });
-  createColorOptions("#teamBColorOptions", selectedTeamBColor, (color) => {
-    selectedTeamBColor = color;
+    draw();
   });
 
   const startGameBtn = $("#startGameBtn");
@@ -784,8 +884,8 @@ const renderSetup = () => {
 
     Object.assign(game, new Game(), {
       teams: [
-        { name: teamAName, color: selectedTeamAColor, score: 0, time: 0 },
-        { name: teamBName, color: selectedTeamBColor, score: 0, time: 0 },
+        { name: teamAName, color: teamColors[0], score: 0, time: 0 },
+        { name: teamBName, color: teamColors[1], score: 0, time: 0 },
       ],
       roundDuration,
       totalRounds,
@@ -810,6 +910,14 @@ const LIBRARY_SETTINGS_KEY = "pantomima.library.settings";
  */
 const setupLibrarySettings = () => {
   $("#librarySettings").classList.remove("hidden");
+  $("#libraryFooter").classList.remove("hidden");
+  // Deck choice, history and reports live in the "More" sheet.
+  const moreSheet = $("#moreSheet");
+  $("#moreBtn").addEventListener("click", () => moreSheet.classList.remove("hidden"));
+  $("#closeMoreBtn").addEventListener("click", () => moreSheet.classList.add("hidden"));
+  moreSheet.addEventListener("click", (event) => {
+    if (event.target === moreSheet) moreSheet.classList.add("hidden");
+  });
   const startGameBtn = $("#startGameBtn");
   const saved = { ...new Game(), ...readJson(LIBRARY_SETTINGS_KEY, {}) };
   const savedFilters = { categories: [], difficulties: [], noNames: false, ...saved.libraryFilters };
@@ -842,23 +950,23 @@ const setupLibrarySettings = () => {
 
   /**
    * One checkbox chip per value; checked if the saved list is empty ("all") or includes it.
-   * `addon(value)` (optional) returns an element shown next to the chip.
+   * `describe(value)` returns { text, lead } (lead = sticker or squares element).
+   * `addon(value)` (optional) returns an element shown under the chip (a tile).
    */
   const fillChips = (box, values, savedList, describe, addon) => {
     const keep = new Set([...box.querySelectorAll("input[type=checkbox]:checked")].map((i) => i.value));
     const hadChips = box.children.length > 0;
     box.replaceChildren();
     values.forEach((value) => {
-      const { text, color } = describe(value);
+      const { text, lead } = describe(value);
       const chip = el("label", "chip");
-      if (color) chip.style.setProperty("--chip-color", color);
       const input = el("input");
       input.type = "checkbox";
       input.value = value;
       input.checked = hadChips ? keep.has(value) || !box.dataset.known?.split("|").includes(value)
         : savedList.length === 0 || savedList.includes(value);
       input.addEventListener("change", updateCount);
-      chip.append(input, text);
+      chip.append(input, lead, el("span", null, text));
       if (addon) {
         const row = el("div", "diff-row");
         row.append(chip, addon(value));
@@ -870,9 +978,9 @@ const setupLibrarySettings = () => {
     box.dataset.known = values.join("|");
   };
 
-  /** Seconds field for one difficulty. */
+  /** Seconds stepper for one difficulty. */
   const timeField = (difficulty) => {
-    const wrap = el("label", "time-field");
+    const wrap = el("div", "time-field");
     const input = el("input", "time-input");
     input.type = "number";
     input.name = difficulty;
@@ -881,11 +989,9 @@ const setupLibrarySettings = () => {
     input.step = 5;
     input.value = times[difficulty] || difficultyInfo(difficulty).seconds;
     input.setAttribute("aria-label", `${difficultyInfo(difficulty).label} (${t("lib.secondsUnit")})`);
-    input.addEventListener("change", () => {
-      readTimes();
-      input.value = times[difficulty] || difficultyInfo(difficulty).seconds; // undo invalid input
-    });
-    wrap.append(input, el("span", "muted", t("lib.secondsUnit")));
+    input.addEventListener("change", readTimes);
+    wrap.appendChild(input);
+    enhanceStepper(input, { suffix: "″" });
     return wrap;
   };
 
@@ -930,12 +1036,13 @@ const setupLibrarySettings = () => {
       deck = loaded;
       fillChips(categoryBox, deck.categories, savedFilters.categories, (value) => {
         const info = categoryInfo(value);
-        return { text: `${info.icon} ${info.label}`, color: info.color };
+        return { text: info.label, lead: createSticker(info.color) };
       });
       readTimes(); // keep typed times when switching decks
-      fillChips(difficultyBox, deck.difficulties, savedFilters.difficulties, (value) => ({
-        text: difficultyInfo(value).label,
-      }), timeField);
+      fillChips(difficultyBox, deck.difficulties, savedFilters.difficulties, (value) => {
+        const info = difficultyInfo(value);
+        return { text: info.label, lead: createSquares(info.level, info.color) };
+      }, timeField);
       updateCount();
     } catch (error) {
       console.error("Could not load deck:", error);
@@ -1023,20 +1130,25 @@ const loadWordsAndGo = async () => {
   }
 };
 
-/** Badges for a library card: category, difficulty (+ acting time), English notice. */
-const createCardMeta = (word) => {
+/** Badges for a library card: category, "In English!" notice, difficulty (+ acting time). */
+const createCardMeta = (word, { difficulty = true } = {}) => {
   const meta = el("div", "card-meta");
   if (!word.category) return meta; // Wikipedia words have no metadata
   const cat = categoryInfo(word.category);
-  const catBadge = el("span", "badge", `${cat.icon} ${cat.label}`);
-  catBadge.style.setProperty("--badge-color", cat.color);
+  const catBadge = el("span", "badge");
+  catBadge.append(createSticker(cat.color), cat.label);
   meta.appendChild(catBadge);
-  if (word.difficulty) {
-    const diff = difficultyInfo(word.difficulty);
-    meta.appendChild(el("span", "badge", `${diff.label} · ${t("lib.seconds", { n: cardSeconds(word) })}`));
-  }
   if (word.latin) meta.appendChild(el("span", "badge latin", t("lib.latin")));
+  if (difficulty && word.difficulty) meta.appendChild(createDifficultyBadge(word));
   return meta;
+};
+
+/** "■■□ Medium · 60″" */
+const createDifficultyBadge = (word) => {
+  const diff = difficultyInfo(word.difficulty);
+  const badge = el("span", "badge difficulty");
+  badge.append(createSquares(diff.level, diff.color), `${diff.label} · ${t("lib.seconds", { n: cardSeconds(word) })}`);
+  return badge;
 };
 
 /** "?" button. `onClick` opens the word's info dialog. */
@@ -1061,30 +1173,32 @@ const createOption = (word) => {
 };
 
 /**
- * Curated Library: one card tile for the pick screen (image or category icon,
- * title, badges, "?" with hint + report & replace).
+ * Curated Library: one card for the pick screen (category, title, difficulty,
+ * image if any, "?" with hint + report & replace).
  * `onReplaced` is called after the card at `index` was reported and replaced.
  */
 const createPickCard = (word, index, onReplaced) => {
   const tile = el("div", "pick-card");
-  const cat = categoryInfo(word.category);
-  tile.style.setProperty("--card-color", cat.color);
+  tile.setAttribute("role", "button");
+  tile.tabIndex = 0;
 
-  // Images are decoration only: fall back to the category icon.
-  const icon = el("div", "pick-icon", cat.icon);
+  const text = el("div", "pick-text");
+  const title = el("div", "pick-title", word.title);
+  title.classList.toggle("long", word.title.length > 28);
+  text.appendChild(title);
+  if (word.difficulty) text.appendChild(createDifficultyBadge(word));
+
+  const bottom = el("div", "pick-bottom");
+  bottom.appendChild(text);
+  // Images are decoration only: no image, no problem.
   if (word.image) {
     const image = el("img", "pick-image");
     image.src = word.image;
     image.alt = "";
-    image.addEventListener("error", () => image.replaceWith(icon));
-    tile.appendChild(image);
-  } else {
-    tile.appendChild(icon);
+    image.addEventListener("error", () => image.remove());
+    bottom.appendChild(image);
   }
-
-  const body = el("div", "pick-body");
-  body.append(el("div", "pick-title", word.title), createCardMeta(word));
-  tile.appendChild(body);
+  tile.append(createCardMeta(word, { difficulty: false }), bottom);
 
   tile.appendChild(createInfoButton(() => {
     const text = word.hint ? t("lib.hintPrefix", { hint: word.hint }) : "";
@@ -1122,10 +1236,20 @@ const renderPick = () => {
         drawCards();
       });
       tile.classList.toggle("selected", game.chosenIndex === index);
-      tile.addEventListener("click", () => {
+      tile.setAttribute("aria-pressed", String(game.chosenIndex === index));
+      const choose = () => {
         game.chosenIndex = index;
         commitBtn.disabled = false;
-        list.querySelectorAll(".pick-card").forEach((card, i) => card.classList.toggle("selected", i === index));
+        list.querySelectorAll(".pick-card").forEach((card, i) => {
+          card.classList.toggle("selected", i === index);
+          card.setAttribute("aria-pressed", String(i === index));
+        });
+      };
+      tile.addEventListener("click", choose);
+      tile.addEventListener("keydown", (event) => {
+        if (event.target !== tile || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        choose();
       });
       list.appendChild(tile);
     });
@@ -1225,7 +1349,6 @@ const renderBriefing = () => {
   const word = game.words[game.chosenIndex];
   $("#briefMeta").replaceWith(createCardMeta(word));
   $("#briefWord").textContent = word.title;
-  $("#briefLatin").classList.toggle("hidden", !word.latin);
 
   const excerpt = $("#briefExcerpt");
   excerpt.textContent = word.extract;
@@ -1331,6 +1454,13 @@ const renderTimer = () => {
   if (!isLastTurn() && !prefetch) startPrefetch();
 
   const timerDisplay = $("#timerDisplay");
+  const timerMain = $("#timerMain");
+  const timerFrac = $("#timerFrac");
+  const view = timerDisplay.closest(".view");
+  const SEGMENTS = 12;
+  const timerBar = $("#timerBar");
+  for (let i = 0; i < SEGMENTS; i++) timerBar.appendChild(el("i"));
+  let segmentsOn = -1;
   const sneakDisplay = $("#sneakDisplay");
   const pauseBtn = $("#pauseBtn");
   const word = game.words[game.chosenIndex];
@@ -1345,13 +1475,24 @@ const renderTimer = () => {
     betLine.classList.remove("hidden");
   }
 
+  // Shown like a speedcubing timer: m:ss.hh (points still use whole seconds).
   const tick = () => {
-    timerDisplay.textContent = formatTime(secondsLeft());
-    if (timeLeftMs() <= 0) endRound("timeout");
+    const ms = timeLeftMs();
+    const hundredths = Math.floor(ms / 10);
+    const secs = Math.floor(hundredths / 100);
+    timerMain.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+    timerFrac.textContent = `.${String(hundredths % 100).padStart(2, "0")}`;
+    const on = Math.ceil((ms / 1000 / (game.turnSeconds || 1)) * SEGMENTS);
+    if (on !== segmentsOn) {
+      segmentsOn = on;
+      [...timerBar.children].forEach((segment, i) => segment.classList.toggle("on", i < on));
+    }
+    view.classList.toggle("paused", game.isPaused);
+    if (ms <= 0) endRound("timeout");
   };
 
   clearInterval(timerId);
-  timerId = setInterval(tick, 250);
+  timerId = setInterval(tick, 50);
   tick();
 
   $("#foundBtn").addEventListener("click", () => endRound("success"));
@@ -1415,14 +1556,14 @@ const renderResult = () => {
     resultTitle.textContent = t("result.timeUp");
     resultText.textContent = t("result.decide");
 
-    const foundBtn = el("button", "success", t("result.found"));
+    const foundBtn = el("button", "primary", t("result.found"));
     foundBtn.addEventListener("click", () => {
       awardPoints(0); // found just as time ran out
       game.lastResult = "success";
       setState(GameStates.SCOREBOARD);
     });
 
-    const failBtn = el("button", "danger", t("result.notFound"));
+    const failBtn = el("button", "secondary", t("result.notFound"));
     failBtn.addEventListener("click", () => {
       game.lastResult = "fail";
       setState(GameStates.SCOREBOARD);
@@ -1445,24 +1586,33 @@ const renderResult = () => {
   }
 };
 
-/** Fill a container with one line per team: "<name>: N points, mm:ss". */
-const renderTeamScores = (container) => {
+/** Fill a container with one tile per team: name, points, time. `markWinner`: outline the leader. */
+const renderTeamScores = (container, { markWinner = false } = {}) => {
   container.replaceChildren();
+  const best = Math.max(...game.teams.map((team) => team.score));
+  const tie = game.teams.every((team) => team.score === best);
   game.teams.forEach((team) => {
-    const row = el("div");
-    row.append(el("strong", null, team.name), t("score.row", { n: team.score, time: formatTime(team.time) }));
-    container.appendChild(row);
+    const tile = el("div", "score-tile");
+    tile.style.setProperty("--team", team.color);
+    tile.classList.toggle("winner", markWinner && !tie && team.score === best);
+    const name = el("div", "score-name");
+    name.append(createSticker(), team.name);
+    tile.append(
+      name,
+      el("div", "score-num", formatNumber(team.score)),
+      el("div", "score-sub", `${t("score.points", { n: team.score })} · ${formatTime(team.time)}`)
+    );
+    container.appendChild(tile);
   });
 };
 
 const renderScoreboard = () => {
-  setTeamIndicator(t("score.indicator"), game.activeTeam.color);
+  setTeamIndicator(roundLabel());
   const node = templates.scoreboard.content.cloneNode(true);
   render(node);
 
   const summary = $("#scoreSummary");
   renderTeamScores(summary);
-  summary.appendChild(el("div", null, t("score.round", { round: currentRound(), total: game.totalRounds })));
 
   // Last turn: points (library) and time.
   const breakdown = $("#roundBreakdown");
@@ -1509,7 +1659,7 @@ const renderFinal = () => {
   render(node);
 
   game.clearSave(); // the game is over, nothing to resume
-  renderTeamScores($("#finalSummary"));
+  renderTeamScores($("#finalSummary"), { markWinner: true });
 
   $("#resetBtn").addEventListener("click", () => {
     game.clearSave();
@@ -1518,6 +1668,7 @@ const renderFinal = () => {
 };
 
 const init = () => {
+  applyTranslations(modal); // the dialog is not a template
   setState(GameStates.MODE_SELECT);
 };
 

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Layer turn transition</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&amp;display=swap">
+<style>
+body{margin:0}
+.strip{position:absolute;left:0;width:390px;height:211px;transform-style:preserve-3d;transform:translateZ(-195px)}
+.strip.turn{animation-name:layerTurn;animation-timing-function:cubic-bezier(.65,0,.35,1);animation-fill-mode:both}
+@keyframes layerTurn{from{transform:translateZ(-195px) rotateY(0deg)}to{transform:translateZ(-195px) rotateY(-90deg)}}
+.sface{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.screen{position:absolute;left:0;width:390px;height:844px;box-sizing:border-box;background:#0E1013;padding:26px 22px 24px;display:flex;flex-direction:column;gap:14px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #050607; perspective: 1300px; font-family: 'JetBrains Mono', ui-monospace, monospace; color: #E8E6E1">
+  <sc-for list="{{strips}}" as="s" hint-placeholder-count="4">
+    <div class="strip {{turnClass}}" style="top: {{s.top}}px; animation-duration: {{dur}}ms; animation-delay: {{s.delay}}ms">
+
+      <div class="sface" style="transform: rotateY(0deg) translateZ(195px)">
+        <div class="screen" style="top: {{s.off}}px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px">
+            <span style="color: #F5B83D">~/pantomima</span><span style="color: #9AA0A8">{{s.cur.k}}</span>
+          </div>
+          <div style="flex-grow: 1"></div>
+          <span style="font-size: 12px; color: #9AA0A8">// {{s.cur.title}}</span>
+          <span style="font-size: {{s.cur.bigSize}}px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em">{{s.cur.big}}</span>
+          <span style="font-size: 13px; color: #9AA0A8">&gt; {{s.cur.sub}}</span>
+          <div style="flex-grow: 1"></div>
+          <div style="height: 56px; border-radius: 10px; background: #F5B83D; color: #0E1013; font-size: 16px; font-weight: 800; display: flex; align-items: center; padding: 0 18px">&gt; {{s.cur.cta}}_</div>
+          <span style="text-align: center; font-size: 12px; color: #9AA0A8">πάτα οπουδήποτε → επόμενη οθόνη</span>
+        </div>
+      </div>
+
+      <div class="sface" style="transform: rotateY(90deg) translateZ(195px)">
+        <div class="screen" style="top: {{s.off}}px">
+          <div style="display: flex; justify-content: space-between; font-size: 13px">
+            <span style="color: #F5B83D">~/pantomima</span><span style="color: #9AA0A8">{{s.nxt.k}}</span>
+          </div>
+          <div style="flex-grow: 1"></div>
+          <span style="font-size: 12px; color: #9AA0A8">// {{s.nxt.title}}</span>
+          <span style="font-size: {{s.nxt.bigSize}}px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em">{{s.nxt.big}}</span>
+          <span style="font-size: 13px; color: #9AA0A8">&gt; {{s.nxt.sub}}</span>
+          <div style="flex-grow: 1"></div>
+          <div style="height: 56px; border-radius: 10px; background: #F5B83D; color: #0E1013; font-size: 16px; font-weight: 800; display: flex; align-items: center; padding: 0 18px">&gt; {{s.nxt.cta}}_</div>
+          <span style="text-align: center; font-size: 12px; color: #9AA0A8">πάτα οπουδήποτε → επόμενη οθόνη</span>
+        </div>
+      </div>
+
+    </div>
+  </sc-for>
+  <button aria-label="Επόμενη οθόνη" onClick="{{next}}" style="position: absolute; inset: 0; z-index: 2; border: 0; background: transparent; cursor: pointer"></button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"duration":{"editor":"range","default":600,"min":250,"max":1600,"step":50,"unit":"ms"},"stagger":{"editor":"range","default":90,"min":0,"max":250,"step":10,"unit":"ms"},"$preview":{"width":390,"height":844}}'>
+const FACES = [
+  { k: '1/3', title: 'ρυθμίσεις', big: '06 γύροι', bigSize: 48, sub: 'Ομάδα Α · Ομάδα Β', cta: 'Έναρξη παιχνιδιού' },
+  { k: '2/3', title: 'Ομάδα Α: Διαλέξτε κάρτα', big: 'Ελληνικός Καφές', bigSize: 40, sub: 'αντικείμενο · μέτρια · 60s', cta: 'Επιβεβαίωση' },
+  { k: '3/3', title: 'χρόνος', big: '00:27', bigSize: 104, sub: 'πόνταρε 1/3 · +75 αν βρεθεί', cta: 'Βρέθηκε!' }
+];
+const STRIP_H = 211;
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { i: 0, turning: false };
+  }
+  componentWillUnmount() {
+    clearTimeout(this.timer);
+  }
+  go() {
+    if (this.state.turning) return;
+    const dur = this.props.duration ?? 600;
+    const stagger = this.props.stagger ?? 90;
+    this.setState({ turning: true });
+    this.timer = setTimeout(() => {
+      this.setState({ i: (this.state.i + 1) % FACES.length, turning: false });
+    }, dur + stagger * 3 + 30);
+  }
+  renderVals() {
+    const i = this.state.i;
+    const cur = FACES[i];
+    const nxt = FACES[(i + 1) % FACES.length];
+    const stagger = this.props.stagger ?? 90;
+    const strips = [0, 1, 2, 3].map((k) => ({ top: k * STRIP_H, off: -k * STRIP_H, delay: k * stagger, cur, nxt }));
+    return {
+      strips,
+      turnClass: this.state.turning ? 'turn' : '',
+      dur: this.props.duration ?? 600,
+      next: () => this.go()
+    };
+  }
+}
+</script>
+</body>
+</html>

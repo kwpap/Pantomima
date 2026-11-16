@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Sticker flip transition</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&amp;family=Roboto+Mono:wght@500;700&amp;display=swap">
+<style>
+body{margin:0}
+.tile{position:absolute;width:130px;height:281.333px;transform-style:preserve-3d}
+.tile.turn{animation-name:stickerFlip;animation-timing-function:cubic-bezier(.65,0,.35,1);animation-fill-mode:both}
+@keyframes stickerFlip{from{transform:rotateY(0deg)}to{transform:rotateY(180deg)}}
+.tface{position:absolute;inset:0;overflow:hidden;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.screen{position:absolute;width:390px;height:844px;box-sizing:border-box;background:#000000;padding:30px 24px 26px;display:flex;flex-direction:column;gap:14px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #111111; perspective: 1600px; font-family: 'Inter Tight', Inter, system-ui, sans-serif; color: #FFFFFF">
+  <sc-for list="{{tiles}}" as="t" hint-placeholder-count="9">
+    <div class="tile {{turnClass}}" style="left: {{t.left}}px; top: {{t.top}}px; animation-duration: {{dur}}ms; animation-delay: {{t.delay}}ms">
+
+      <div class="tface">
+        <div class="screen" style="left: {{t.offX}}px; top: {{t.offY}}px">
+          <div style="display: flex; justify-content: space-between; font: 700 12px 'Roboto Mono', monospace; letter-spacing: 0.08em">
+            <span style="color: {{t.cur.hudColor}}">{{t.cur.hud}}</span><span style="color: #A8A8A8">{{t.cur.k}}</span>
+          </div>
+          <div style="flex-grow: 1"></div>
+          <span style="font: 700 12px 'Roboto Mono', monospace; color: #A8A8A8; letter-spacing: 0.1em">{{t.cur.title}}</span>
+          <span style="font-family: {{t.cur.bigFont}}; font-size: {{t.cur.bigSize}}px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em">{{t.cur.big}}</span>
+          <span style="font-size: 15px; color: #A8A8A8">{{t.cur.sub}}</span>
+          <div style="flex-grow: 1"></div>
+          <div style="height: 56px; border-radius: 999px; background: #FFFFFF; color: #000000; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{t.cur.cta}}</div>
+          <span style="text-align: center; font-size: 13px; color: #A8A8A8">Πάτα οπουδήποτε για την επόμενη οθόνη</span>
+        </div>
+      </div>
+
+      <div class="tface" style="transform: rotateY(180deg)">
+        <div class="screen" style="left: {{t.offX}}px; top: {{t.offY}}px">
+          <div style="display: flex; justify-content: space-between; font: 700 12px 'Roboto Mono', monospace; letter-spacing: 0.08em">
+            <span style="color: {{t.nxt.hudColor}}">{{t.nxt.hud}}</span><span style="color: #A8A8A8">{{t.nxt.k}}</span>
+          </div>
+          <div style="flex-grow: 1"></div>
+          <span style="font: 700 12px 'Roboto Mono', monospace; color: #A8A8A8; letter-spacing: 0.1em">{{t.nxt.title}}</span>
+          <span style="font-family: {{t.nxt.bigFont}}; font-size: {{t.nxt.bigSize}}px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em">{{t.nxt.big}}</span>
+          <span style="font-size: 15px; color: #A8A8A8">{{t.nxt.sub}}</span>
+          <div style="flex-grow: 1"></div>
+          <div style="height: 56px; border-radius: 999px; background: #FFFFFF; color: #000000; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center">{{t.nxt.cta}}</div>
+          <span style="text-align: center; font-size: 13px; color: #A8A8A8">Πάτα οπουδήποτε για την επόμενη οθόνη</span>
+        </div>
+      </div>
+
+    </div>
+  </sc-for>
+  <button aria-label="Επόμενη οθόνη" onClick="{{next}}" style="position: absolute; inset: 0; z-index: 2; border: 0; background: transparent; cursor: pointer"></button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"duration":{"editor":"range","default":550,"min":250,"max":1600,"step":50,"unit":"ms"},"stagger":{"editor":"range","default":70,"min":0,"max":200,"step":10,"unit":"ms"},"$preview":{"width":390,"height":844}}'>
+const FACES = [
+  { k: '1/3', hud: 'ΡΥΘΜΙΣΕΙΣ', hudColor: '#A8A8A8', title: 'PANTOMIMA', big: '6 γύροι', bigFont: "'Inter Tight', sans-serif", bigSize: 52, sub: 'Ομάδα Α · Ομάδα Β', cta: 'Έναρξη παιχνιδιού' },
+  { k: '2/3', hud: 'ΓΥΡΟΣ 3/6', hudColor: '#A8A8A8', title: '● ΛΗΨΗ 1 · ΑΝΤΙΚΕΙΜΕΝΟ', big: 'Ελληνικός Καφές', bigFont: "'Inter Tight', sans-serif", bigSize: 44, sub: 'Μέτρια · 60s', cta: 'Επιβεβαίωση' },
+  { k: '3/3', hud: '● REC', hudColor: '#FF453A', title: 'ΠΑΝΤΟΜΙΜΑ: ΟΜΑΔΑ Β', big: '00:00:27:12', bigFont: "'Roboto Mono', monospace", bigSize: 48, sub: 'Πόνταρε 1/3 του χρόνου · +75 αν βρεθεί', cta: 'Βρέθηκε!' }
+];
+const TILE_W = 130;
+const TILE_H = 844 / 3;
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { i: 0, turning: false };
+  }
+  componentWillUnmount() {
+    clearTimeout(this.timer);
+  }
+  go() {
+    if (this.state.turning) return;
+    const dur = this.props.duration ?? 550;
+    const stagger = this.props.stagger ?? 70;
+    this.setState({ turning: true });
+    this.timer = setTimeout(() => {
+      this.setState({ i: (this.state.i + 1) % FACES.length, turning: false });
+    }, dur + stagger * 4 + 30);
+  }
+  renderVals() {
+    const i = this.state.i;
+    const cur = FACES[i];
+    const nxt = FACES[(i + 1) % FACES.length];
+    const stagger = this.props.stagger ?? 70;
+    const tiles = [];
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        const left = c * TILE_W;
+        const top = +(r * TILE_H).toFixed(3);
+        tiles.push({ left, top, offX: -left, offY: -top, delay: (r + c) * stagger, cur, nxt });
+      }
+    }
+    return {
+      tiles,
+      turnClass: this.state.turning ? 'turn' : '',
+      dur: this.props.duration ?? 550,
+      next: () => this.go()
+    };
+  }
+}
+</script>
+</body>
+</html>

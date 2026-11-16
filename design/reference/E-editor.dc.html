@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<title>Editor screens</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#8B93A1}a:hover{color:#E8E6E1}
+button{font-family:inherit}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.cursor{animation:blink 1.1s steps(1) infinite}
+</style>
+</helmet>
+<div style="width: 1362px; height: 972px; box-sizing: border-box; padding: 48px; background: #08090B; display: flex; gap: 48px; font-family: 'JetBrains Mono', ui-monospace, monospace; color: #E8E6E1">
+
+  <!-- 01 Setup: a config file -->
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #8B93A1">01 · Ρυθμίσεις</p>
+    <div style="width: 390px; height: 844px; box-sizing: border-box; border: 1px solid #262B33; border-radius: 28px; background: #0E1013; padding: 22px 16px 22px; display: flex; flex-direction: column; overflow: hidden">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px">
+        <span style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px 10px 0 0; border-bottom: 2px solid #7AB7FF; background: #15181D; font-size: 13px; font-weight: 700"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 2px; background: #FFD866"></span>ρυθμίσεις</span>
+        <button style="height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid #262B33; background: transparent; color: #E8E6E1; font-size: 12px">Επιμελημένη Βιβλιοθήκη ›</button>
+      </div>
+
+      <div style="display: flex; align-items: center; height: 26px; font-size: 13px"><span style="width: 28px; color: #7A828E">1</span><span style="color: #8B93A1">// ομάδες</span></div>
+      <button style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">2</span><span style="color: #7AB7FF">ομάδα_α</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #7EE0A2; flex-grow: 1">"Ομάδα Α"</span><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; background: #7AB7FF"></span>
+      </button>
+      <button style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">3</span><span style="color: #7AB7FF">ομάδα_β</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #7EE0A2; flex-grow: 1">"Ομάδα Β"</span><span aria-hidden="true" style="width: 16px; height: 16px; border-radius: 4px; background: #FFB86B"></span>
+      </button>
+
+      <div style="display: flex; align-items: center; height: 14px; font-size: 13px"><span style="width: 28px; color: #7A828E">4</span></div>
+      <div style="display: flex; align-items: center; height: 26px; font-size: 13px"><span style="width: 28px; color: #7A828E">5</span><span style="color: #8B93A1">// γύροι: κάθε ομάδα παίζει μία φορά ανά γύρο</span></div>
+      <div style="display: flex; align-items: center; height: 44px; font-size: 15px">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">6</span><span style="color: #7AB7FF">γύροι</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #FFB86B; font-weight: 700; flex-grow: 1">6</span>
+        <button aria-label="Λιγότεροι γύροι" style="width: 44px; height: 40px; border-radius: 8px 0 0 8px; border: 1px solid #262B33; background: #15181D; color: #E8E6E1; font-size: 16px">−</button>
+        <button aria-label="Περισσότεροι γύροι" style="width: 44px; height: 40px; border-radius: 0 8px 8px 0; border: 1px solid #262B33; border-left: 0; background: #15181D; color: #E8E6E1; font-size: 16px">+</button>
+      </div>
+
+      <div style="display: flex; align-items: center; height: 14px; font-size: 13px"><span style="width: 28px; color: #7A828E">7</span></div>
+      <div style="display: flex; align-items: center; height: 26px; font-size: 13px"><span style="width: 28px; color: #7A828E">8</span><span style="color: #8B93A1">// δυσκολία και χρόνος</span></div>
+      <button aria-pressed="true" style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">9</span><span style="color: #7EE0A2">[x]</span><span>&nbsp;Εύκολη</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #FFB86B; font-weight: 700; flex-grow: 1">45s</span><span style="font-size: 12px; color: #8B93A1">αλλαγή</span>
+      </button>
+      <button aria-pressed="true" style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">10</span><span style="color: #7EE0A2">[x]</span><span>&nbsp;Μέτρια</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #FFB86B; font-weight: 700; flex-grow: 1">60s</span><span style="font-size: 12px; color: #8B93A1">αλλαγή</span>
+      </button>
+      <button aria-pressed="true" style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">11</span><span style="color: #7EE0A2">[x]</span><span>&nbsp;Δύσκολη</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #FFB86B; font-weight: 700; flex-grow: 1">90s</span><span style="font-size: 12px; color: #8B93A1">αλλαγή</span>
+      </button>
+
+      <div style="display: flex; align-items: center; height: 14px; font-size: 13px"><span style="width: 28px; color: #7A828E">12</span></div>
+      <div style="display: flex; align-items: center; height: 26px; font-size: 13px"><span style="width: 28px; color: #7A828E">13</span><span style="color: #8B93A1">// κατηγορίες</span></div>
+      <div style="display: flex; align-items: center; height: 44px; font-size: 14px">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">14</span>
+        <button aria-pressed="true" style="height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 14px"><span style="color: #7EE0A2">[x]</span> Δράση</button><span style="width: 16px"></span>
+        <button aria-pressed="true" style="height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 14px"><span style="color: #7EE0A2">[x]</span> Αντικείμενο</button>
+      </div>
+      <div style="display: flex; align-items: center; height: 44px; font-size: 14px">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">15</span>
+        <button aria-pressed="true" style="height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 14px"><span style="color: #7EE0A2">[x]</span> Ταινίες/Σειρές/Τραγούδια</button>
+      </div>
+      <div style="display: flex; align-items: center; height: 44px; font-size: 14px">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">16</span>
+        <button aria-pressed="false" style="height: 44px; border: 0; background: transparent; padding: 0; color: #8B93A1; font-size: 14px">[ ] Πρόσωπο</button><span style="width: 16px"></span>
+        <button aria-pressed="true" style="height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 14px"><span style="color: #7EE0A2">[x]</span> Φράση</button>
+      </div>
+      <button aria-pressed="true" style="display: flex; align-items: center; height: 44px; border: 0; background: transparent; padding: 0; color: #E8E6E1; font-size: 15px; text-align: left">
+        <span style="width: 28px; font-size: 13px; color: #7A828E">17</span><span style="color: #7AB7FF">χωρίς_ονόματα</span><span style="color: #8B93A1">&nbsp;=&nbsp;</span><span style="color: #FFD866; font-weight: 700">true</span>
+      </button>
+
+      <div style="flex-grow: 1"></div>
+      <div style="display: flex; justify-content: space-between; align-items: center; height: 30px; margin: 0 -16px 12px; padding: 0 16px; background: #15181D; border-top: 1px solid #262B33; border-bottom: 1px solid #262B33; font-size: 11px; color: #8B93A1">
+        <span><span style="color: #FFB86B">1.000</span> κάρτες διαθέσιμες</span>
+        <a href="#">περισσότερα</a>
+      </div>
+      <button style="display: flex; align-items: center; justify-content: center; gap: 10px; height: 56px; border-radius: 12px; border: 0; background: #7EE0A2; color: #0B1A11; font-size: 16px; font-weight: 800">
+        <svg width="14" height="16" viewBox="0 0 14 16" aria-hidden="true"><path d="M1 1.5v13l12-6.5z" fill="#0B1A11"></path></svg>Έναρξη παιχνιδιού
+      </button>
+    </div>
+  </div>
+
+  <!-- 02 Pick (team A = blue) -->
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #8B93A1">02 · Διάλεξε κάρτα</p>
+    <div style="width: 390px; height: 844px; box-sizing: border-box; border: 1px solid #262B33; border-radius: 28px; background: #0E1013; padding: 22px 16px 22px; display: flex; flex-direction: column; gap: 14px; overflow: hidden">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px 10px 0 0; border-bottom: 2px solid #7AB7FF; background: #15181D; font-size: 13px; font-weight: 700"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 2px; background: #7AB7FF"></span>διαλέγει: Ομάδα Α</span>
+        <span style="font-size: 12px; color: #8B93A1">γύρος <span style="color: #FFB86B">3</span>/6</span>
+      </div>
+      <h1 style="margin: 0; font-size: 24px; line-height: 30px; font-weight: 800"><span style="color: #7AB7FF">Ομάδα Α:</span> Διαλέξτε κάρτα</h1>
+      <p style="margin: 0; font-size: 13px; line-height: 20px; color: #8B93A1">// Διαλέξτε 1 από τις 2 κάρτες. Θα την παίξει η ομάδα: <span style="color: #FFB86B">Ομάδα Β</span>.</p>
+
+      <div style="flex-grow: 1; position: relative; display: flex">
+        <button style="flex-grow: 1; border-radius: 14px; border: 2px solid #7AB7FF; background: #131C2A; color: #E8E6E1; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; text-align: left">
+          <span style="font-size: 12px; color: #7AB7FF">✓ επιλεγμένη</span>
+          <span style="flex-grow: 1"></span>
+          <span style="font-size: 30px; line-height: 36px; font-weight: 800">Ελληνικός Καφές</span>
+          <span style="margin-top: 12px; font-size: 13px; line-height: 20px"><span style="color: #7AB7FF">κατηγορία</span><span style="color: #8B93A1">: </span><span style="color: #7EE0A2">"Αντικείμενο"</span></span>
+          <span style="font-size: 13px; line-height: 20px"><span style="color: #7AB7FF">δυσκολία</span><span style="color: #8B93A1">: </span><span style="color: #7EE0A2">"Μέτρια"</span><span style="color: #8B93A1">, </span><span style="color: #7AB7FF">χρόνος</span><span style="color: #8B93A1">: </span><span style="color: #FFB86B">60s</span></span>
+        </button>
+        <button aria-label="Υπόδειξη" style="position: absolute; top: 8px; right: 8px; height: 44px; padding: 0 10px; border: 0; background: transparent; color: #C4C9D1; font-size: 13px">[?] υπόδειξη</button>
+      </div>
+
+      <div style="flex-grow: 1; position: relative; display: flex">
+        <button style="flex-grow: 1; border-radius: 14px; border: 1px solid #262B33; background: #15181D; color: #E8E6E1; padding: 16px; display: flex; flex-direction: column; align-items: flex-start; text-align: left">
+          <span style="font-size: 12px; color: #8B93A1">κάρτα 2</span>
+          <span style="flex-grow: 1"></span>
+          <span style="font-size: 30px; line-height: 36px; font-weight: 800">Τα Στρουμφάκια</span>
+          <span style="margin-top: 12px; font-size: 13px; line-height: 20px"><span style="color: #7AB7FF">κατηγορία</span><span style="color: #8B93A1">: </span><span style="color: #7EE0A2">"Ταινίες/Σειρές/Τραγούδια"</span></span>
+          <span style="font-size: 13px; line-height: 20px"><span style="color: #7AB7FF">δυσκολία</span><span style="color: #8B93A1">: </span><span style="color: #7EE0A2">"Δύσκολη"</span><span style="color: #8B93A1">, </span><span style="color: #7AB7FF">χρόνος</span><span style="color: #8B93A1">: </span><span style="color: #FFB86B">90s</span></span>
+        </button>
+        <button aria-label="Υπόδειξη" style="position: absolute; top: 8px; right: 8px; height: 44px; padding: 0 10px; border: 0; background: transparent; color: #8B93A1; font-size: 13px">[?] υπόδειξη</button>
+      </div>
+
+      <button style="height: 56px; border-radius: 12px; border: 0; background: #7AB7FF; color: #08131F; font-size: 16px; font-weight: 800">Επιβεβαίωση</button>
+    </div>
+  </div>
+
+  <!-- 03 Timer (team B = orange) -->
+  <div style="display: flex; flex-direction: column; gap: 12px">
+    <p style="margin: 0; font-size: 13px; line-height: 20px; color: #8B93A1">03 · Χρονόμετρο</p>
+    <div style="width: 390px; height: 844px; box-sizing: border-box; border: 1px solid #262B33; border-radius: 28px; background: #0E1013; padding: 22px 16px 22px; display: flex; flex-direction: column; gap: 12px; overflow: hidden">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <span style="display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border-radius: 10px 10px 0 0; border-bottom: 2px solid #FFB86B; background: #15181D; font-size: 13px; font-weight: 700"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 2px; background: #FFB86B"></span>παντομίμα: Ομάδα Β</span>
+        <span style="font-size: 12px; color: #8B93A1">γύρος <span style="color: #FFB86B">3</span>/6</span>
+      </div>
+      <div style="border: 1px solid #262B33; border-radius: 12px; background: #15181D; padding: 12px 14px; font-size: 13px; line-height: 22px">
+        <div><span style="color: #7AB7FF">στοίχημα</span><span style="color: #8B93A1"> = </span><span style="color: #7EE0A2">"Πόνταρε 1/3 του χρόνου"</span></div>
+        <div><span style="color: #7AB7FF">μπόνους</span><span style="color: #8B93A1"> = </span><span style="color: #FFB86B">+75</span><span style="color: #8B93A1"> // αν βρεθεί</span></div>
+      </div>
+      <div style="flex-grow: 1"></div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 18px">
+        <span style="font-size: 112px; line-height: 112px; font-weight: 800; letter-spacing: -0.05em">00<span class="cursor" style="color: #FFB86B">:</span>27</span>
+        <div aria-hidden="true" style="display: flex; gap: 3px; width: 100%">
+          <sc-for list="{{segments}}" as="seg" hint-placeholder-count="20">
+            <div style="flex-grow: 1; height: 14px; border-radius: 2px; background: {{seg.bg}}"></div>
+          </sc-for>
+        </div>
+        <span style="font-size: 12px; color: #8B93A1"><span style="color: #FFB86B">27s</span> / 40s</span>
+      </div>
+      <div style="flex-grow: 1"></div>
+      <button style="height: 50px; border-radius: 12px; border: 1px dashed #3A404A; background: transparent; color: #E8E6E1; font-size: 14px">Κλεφτή ματιά (κράτα πατημένο)</button>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <button style="height: 50px; border-radius: 12px; border: 1px solid #262B33; background: #15181D; color: #E8E6E1; font-size: 14px">Παύση</button>
+        <button style="height: 50px; border-radius: 12px; border: 1px solid #262B33; background: #15181D; color: #E8E6E1; font-size: 14px">Εγκατάλειψη</button>
+      </div>
+      <button style="height: 72px; border-radius: 12px; border: 0; background: #FFB86B; color: #1F1206; font-size: 22px; font-weight: 800">Βρέθηκε!</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1362,"height":972}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const segments = [];
+    for (let i = 0; i < 20; i++) {
+      segments.push({ bg: i < 13 ? '#FFB86B' : '#262B33' });
+    }
+    return { segments };
+  }
+}
+</script>
+</body>
+</html>

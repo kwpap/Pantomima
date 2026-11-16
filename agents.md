@@ -27,7 +27,15 @@ A two-team **charades (παντομίμα)** game for one shared phone. The game
 - **UI in two languages**: Greek (default) and English, chosen with two flag
   buttons on the first screen, remembered in `pantomima.lang`. Deck cards are
   always Greek; Wikipedia words follow the UI language.
-- Mobile-first, dark theme, max width 480px.
+- Mobile-first, dark theme, max width 480px. **Look: "D · Cube Pro"** — tokens,
+  rules and the planned "Editor" easter-egg theme are in `design/README.md`
+  (read it before touching the UI). Mockup sources: `design/reference/`.
+- **Every screen fits one phone screen** (no page scroll): `.app` is `100dvh`,
+  each screen is a flex column (`.view`) with the main button at the bottom.
+  Long content scrolls inside its own box. Phones shorter than ~700px: the
+  setup screen scrolls inside itself and the Start button stays pinned.
+- The end goal is a Kotlin Multiplatform phone app; this web version is where
+  the game and the look are finished first.
 
 
 ### Run it
@@ -132,13 +140,30 @@ not already in `others`/the hand), played history
 
 `index.html` holds all screens as `<template id="...Template">` (incl.
 `pickTemplate` for the library) plus a shared modal and toast. `style.css`
-uses CSS variables in `:root`.
+uses CSS variables in `:root` (the design tokens).
+
+**UI building blocks (app.js):**
+- `render(node)` wraps the screen in a `.face`, gives it `--team` (the colour
+  of the team holding the phone, from the last `setTeamIndicator(text, color)`
+  call; none = white) and fills `[data-round]`. When `setState()` moved to a
+  *different* state it turns the old and new face like a cube (600 ms, off for
+  reduced motion). During the turn the old face is `inert` and loses its ids,
+  so `$("#id")` always finds the new screen. Style with classes, not ids.
+- `.primary` buttons take `--team`. `createSticker(color)`,
+  `createSquares(level, color)` (difficulty), `enhanceStepper(input)` (number
+  input → "− value +", the input stays hidden and still fires `change`).
+- Setup: team tiles (name input + tap-to-cycle colour, `COLOR_PALETTE` = six
+  cube colours), chips are labels with a hidden checkbox (`:has(input:checked)`),
+  deck picker / history / reports are in the "More" sheet (`#moreSheet`).
+- Timer shows `m:ss.hh` (50 ms redraw) and a 12-segment bar; points still use
+  whole seconds (`secondsLeft()`).
 
 ---
 
 ## 4. Conventions
 
 - Vanilla JS, ES2020+ (optional chaining, async/await), no modules, globals.
+- No emoji in the UI; colour always comes with a second cue (text, count).
 - **No hard-coded UI text.** Add every string to both `STRINGS.el` and
   `STRINGS.en` in `i18n.js`. HTML: `data-i18n="key"` (also
   `data-i18n-placeholder`, `data-i18n-aria`; `render()` applies them). JS:
@@ -252,6 +277,19 @@ Greek labels from the spec (Δράση, Χωρίς ονόματα, Στα αγγ
 ## 7. Log
 
 Newest first. One entry per task: date, what changed, anything left open.
+
+- **2026-11-16** — New look "D · Cube Pro" (chosen by the user from mockups
+  A–E). Rewrote `index.html` templates and `style.css`; `app.js`: `render()`
+  with cube turn, team colour per screen, steppers, team tiles, "More" sheet,
+  new pick cards, timer with hundredths + bar, score tiles (winner outlined on
+  the final screen). Palette = six cube colours (old team colour strings
+  removed), category emoji replaced by coloured stickers, `lib.seconds` is now
+  `{n}″`. Game rules and saved-game format unchanged. Added `design/` (style
+  guide, mockup sources, spec of the "Editor" easter egg: not built). Checked
+  with Playwright at 390×844 (full library game, Wikipedia screens with
+  stubbed words), 375×667 and 360×640: no errors, no page scroll. Open: on
+  phones shorter than ~700px setup needs a small scroll; Wikipedia Freaks was
+  not run against the live API this time.
 
 - **2026-11-16** — Greek wording pass (user's picks). Singular "you" for a
   single person (briefing "Η λέξη σου", "Δοκίμασε ξανά", "Δώσε το κινητό"),

@@ -2,15 +2,27 @@
 <html lang="el">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F1012" />
   <title>Pantomima</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Look and rules: design/README.md ("D · Cube Pro"). Every screen fits one phone screen. -->
   <main class="app">
     <header class="app-header">
-      <h1>Pantomima</h1>
-      <div id="teamIndicator" class="team-indicator">Pantomima</div>
+      <div class="brand">
+        <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <h1>Pantomima</h1>
+      </div>
+      <!-- Who holds the phone / what is happening. Tinted with the team's colour. -->
+      <div id="teamIndicator" class="team-chip hidden">
+        <span class="sticker" aria-hidden="true"></span>
+        <span id="teamIndicatorText"></span>
+      </div>
     </header>
 
     <section id="screenContainer" class="screen"></section>
@@ -19,220 +31,257 @@
   </main>
 
   <template id="modeTemplate">
-    <div class="card">
-      <div class="lang-row">
-        <span class="muted" data-i18n="app.language"></span>
+    <div class="view">
+      <div class="title-row">
+        <h2 data-i18n="mode.title"></h2>
         <!-- One flag button per entry in LANGUAGES (i18n.js) -->
-        <div id="langSwitch" class="lang-switch"></div>
+        <div id="langSwitch" class="lang-switch" role="group" data-i18n-aria="app.language"></div>
       </div>
-      <h2 data-i18n="mode.title"></h2>
-      <p class="muted" data-i18n="mode.subtitle"></p>
+      <p class="section-label" data-i18n="mode.subtitle"></p>
       <!-- One button per entry in WORD_SOURCES (app.js) -->
       <div id="modeList" class="mode-list"></div>
+      <div class="spacer"></div>
       <div id="resumeBlock" class="resume-block hidden">
         <p data-i18n="resume.found"></p>
-        <button id="resumeBtn" class="secondary" data-i18n="resume.resume"></button>
-        <button id="discardBtn" class="ghost" data-i18n="resume.discard"></button>
+        <div class="row-2">
+          <button id="resumeBtn" class="primary" data-i18n="resume.resume"></button>
+          <button id="discardBtn" class="secondary" data-i18n="resume.discard"></button>
+        </div>
       </div>
     </div>
   </template>
 
   <template id="setupTemplate">
-    <div class="card">
-      <h2 id="setupTitle">Setup</h2>
-      <div class="grid">
-        <label>
-          <span data-i18n="setup.teamAName"></span>
-          <input id="teamAName" type="text" data-i18n-placeholder="team.a" />
-        </label>
-        <label>
-          <span data-i18n="setup.teamAColor"></span>
-          <div id="teamAColorOptions" class="color-options"></div>
-        </label>
-        <label>
-          <span data-i18n="setup.teamBName"></span>
-          <input id="teamBName" type="text" data-i18n-placeholder="team.b" />
-        </label>
-        <label>
-          <span data-i18n="setup.teamBColor"></span>
-          <div id="teamBColorOptions" class="color-options"></div>
-        </label>
-        <!-- Wikipedia only: in the Curated Library the time comes from the card's difficulty -->
-        <label id="roundDurationField">
-          <span data-i18n="setup.roundDuration"></span>
-          <input id="roundDuration" type="number" min="30" max="300" value="90" />
-        </label>
-        <label>
-          <span data-i18n="setup.totalRounds"></span>
-          <input id="totalRounds" type="number" min="1" max="20" value="6" />
-        </label>
+    <div class="view">
+      <div class="title-row">
+        <h2 data-i18n="setup.heading"></h2>
+        <!-- Shows the chosen version; tap to change it -->
+        <button id="changeModeBtn" type="button" class="chip-btn" data-i18n-aria="setup.changeMode"></button>
       </div>
+
+      <div class="group">
+        <p class="section-label" data-i18n="setup.teams"></p>
+        <div class="team-tiles">
+          <div id="teamATile" class="team-tile">
+            <div class="team-name-row">
+              <span class="sticker" aria-hidden="true"></span>
+              <input id="teamAName" type="text" maxlength="20" autocomplete="off" data-i18n-placeholder="team.a" data-i18n-aria="setup.teamAName" />
+            </div>
+            <!-- Tap: next colour (never the other team's) -->
+            <button id="teamAColorBtn" type="button" class="color-cycle" data-i18n-aria="setup.teamAColor"></button>
+          </div>
+          <div id="teamBTile" class="team-tile">
+            <div class="team-name-row">
+              <span class="sticker" aria-hidden="true"></span>
+              <input id="teamBName" type="text" maxlength="20" autocomplete="off" data-i18n-placeholder="team.b" data-i18n-aria="setup.teamBName" />
+            </div>
+            <button id="teamBColorBtn" type="button" class="color-cycle" data-i18n-aria="setup.teamBColor"></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Number inputs become − / + steppers (enhanceStepper in app.js) -->
+      <div class="setting-row">
+        <div class="setting-text">
+          <span class="setting-name" data-i18n="setup.rounds"></span>
+          <span class="setting-help" data-i18n="setup.roundsHelp"></span>
+        </div>
+        <input id="totalRounds" type="number" min="1" max="20" step="1" value="6" data-i18n-aria="setup.rounds" />
+      </div>
+      <!-- Wikipedia only: in the Curated Library the time comes from the card's difficulty -->
+      <div id="roundDurationField" class="setting-row">
+        <div class="setting-text">
+          <span class="setting-name" data-i18n="setup.roundDuration"></span>
+          <span class="setting-help" data-i18n="setup.roundDurationHelp"></span>
+        </div>
+        <input id="roundDuration" type="number" min="30" max="300" step="15" value="90" data-i18n-aria="setup.roundDuration" />
+      </div>
+
       <!-- Settings only used by the Wikipedia version -->
-      <div id="wikipediaSettings" class="grid hidden">
-        <label>
-          <span data-i18n="wiki.category"></span>
+      <div id="wikipediaSettings" class="group-stack hidden">
+        <div class="setting-row">
+          <label class="setting-name" for="categorySelect" data-i18n="wiki.category"></label>
           <select id="categorySelect">
             <option value="random" data-i18n="wcat.random"></option>
             <option value="all" data-i18n="wcat.all"></option>
             <!-- Topic categories are added from CATEGORIES in app.js -->
           </select>
-        </label>
-        <label class="checkbox-label">
-          <input id="excludeHumansCheckbox" type="checkbox" />
-          <span data-i18n="wiki.excludePeople"></span>
+        </div>
+        <label class="setting-row">
+          <span class="setting-name" data-i18n="wiki.excludePeople"></span>
+          <input id="excludeHumansCheckbox" type="checkbox" class="switch" />
         </label>
       </div>
-      <!-- Settings only used by the Word Library version (filled by app.js) -->
-      <div id="librarySettings" class="grid hidden">
-        <label>
-          <span data-i18n="lib.deck"></span>
-          <select id="deckSelect"></select>
-        </label>
-        <fieldset class="filter-group">
-          <legend data-i18n="lib.categories"></legend>
+
+      <!-- Settings only used by the Curated Library version (filled by app.js) -->
+      <div id="librarySettings" class="group-stack hidden">
+        <fieldset class="group">
+          <legend class="section-label" data-i18n="lib.difficulty"></legend>
+          <!-- One tile per difficulty: on/off + acting time in seconds -->
+          <div id="difficultyFilters" class="diff-tiles"></div>
+        </fieldset>
+        <fieldset class="group">
+          <legend class="section-label" data-i18n="lib.categories"></legend>
           <div id="categoryFilters" class="chips"></div>
         </fieldset>
-        <fieldset class="filter-group">
-          <legend data-i18n="lib.difficulty"></legend>
-          <!-- One row per difficulty: checkbox chip + acting time in seconds -->
-          <div id="difficultyFilters" class="diff-rows"></div>
-        </fieldset>
-        <label class="checkbox-label">
-          <input id="noNamesCheckbox" type="checkbox" />
-          <span data-i18n="lib.noNames"></span>
+        <label class="setting-row">
+          <span class="setting-name" data-i18n="lib.noNames"></span>
+          <input id="noNamesCheckbox" type="checkbox" class="switch" />
         </label>
-        <div id="deckCount" class="deck-count muted" data-i18n="lib.loading"></div>
-        <div class="library-tools">
-          <button id="resetPlayedBtn" type="button" class="ghost small" data-i18n="lib.resetHistory"></button>
-          <span id="reportedInfo" class="muted"></span>
-          <button id="downloadReportedBtn" type="button" class="ghost small hidden" data-i18n="lib.downloadReports"></button>
-          <button id="clearReportedBtn" type="button" class="ghost small hidden" data-i18n="lib.clearReports"></button>
-        </div>
       </div>
-      <div class="actions">
-        <button id="startGameBtn" class="primary" data-i18n="setup.start"></button>
-        <button id="changeModeBtn" class="ghost" data-i18n="setup.changeMode"></button>
+
+      <div class="spacer"></div>
+      <div id="libraryFooter" class="setup-footer hidden">
+        <span id="deckCount" class="deck-count" data-i18n="lib.loading"></span>
+        <button id="moreBtn" type="button" class="link-btn" data-i18n="setup.more"></button>
+      </div>
+      <button id="startGameBtn" class="primary" data-i18n="setup.start"></button>
+
+      <!-- Curated Library: rarely used tools, kept off the main screen -->
+      <div id="moreSheet" class="sheet hidden" role="dialog" aria-modal="true">
+        <div class="sheet-content">
+          <div class="title-row">
+            <h3 data-i18n="setup.more"></h3>
+            <button id="closeMoreBtn" type="button" class="chip-btn" data-i18n="modal.close"></button>
+          </div>
+          <div class="setting-row">
+            <label class="setting-name" for="deckSelect" data-i18n="lib.deck"></label>
+            <select id="deckSelect"></select>
+          </div>
+          <button id="resetPlayedBtn" type="button" class="secondary" data-i18n="lib.resetHistory"></button>
+          <p id="reportedInfo" class="muted"></p>
+          <button id="downloadReportedBtn" type="button" class="secondary hidden" data-i18n="lib.downloadReports"></button>
+          <button id="clearReportedBtn" type="button" class="secondary hidden" data-i18n="lib.clearReports"></button>
+        </div>
       </div>
     </div>
   </template>
 
+  <!-- [data-round] is filled with "Round 3 / 6" by render() -->
   <template id="selectionTemplate">
-    <div class="card">
+    <div class="view">
+      <p class="kicker" data-round></p>
       <h2 id="selectionTitle"></h2>
       <p id="selectionHelp" class="muted"></p>
       <div id="optionsList" class="options"></div>
-      <div class="actions">
-        <button id="commitSelectionBtn" class="primary" disabled data-i18n="commit"></button>
-      </div>
+      <button id="commitSelectionBtn" class="primary" disabled data-i18n="commit"></button>
     </div>
   </template>
 
   <!-- Curated Library: the active team picks 1 of 2 cards for the other team -->
   <template id="pickTemplate">
-    <div class="card">
+    <div class="view">
+      <p class="kicker" data-round></p>
       <h2 id="pickTitle"></h2>
       <p id="pickHelp" class="muted"></p>
-      <div id="pickList" class="pick-grid"></div>
-      <div class="actions">
-        <button id="commitPickBtn" class="primary" disabled data-i18n="commit"></button>
-      </div>
+      <div id="pickList" class="pick-list"></div>
+      <button id="commitPickBtn" class="primary" disabled data-i18n="commit"></button>
     </div>
   </template>
 
   <template id="choiceTemplate">
-    <div class="card">
+    <div class="view">
+      <p class="kicker" data-round></p>
       <h2 id="choiceTitle"></h2>
       <p id="choiceHelp" class="muted"></p>
       <div id="choiceList" class="options"></div>
-      <div class="actions">
-        <button id="commitChoiceBtn" class="primary" disabled data-i18n="commit"></button>
-      </div>
+      <button id="commitChoiceBtn" class="primary" disabled data-i18n="commit"></button>
     </div>
   </template>
 
   <template id="briefingTemplate">
-    <div class="card">
-      <h2 data-i18n="briefing.title"></h2>
-      <div id="briefMeta" class="card-meta"></div>
+    <div class="view">
+      <p class="kicker" data-i18n="briefing.title"></p>
       <div class="word" id="briefWord"></div>
-      <div id="briefLatin" class="latin-notice hidden" data-i18n="lib.latin"></div>
-      <img id="briefImage" class="brief-image hidden" alt="" />
-      <div class="excerpt" id="briefExcerpt"></div>
-      <button id="hintBtn" type="button" class="ghost hidden" data-i18n="lib.hint"></button>
+      <div id="briefMeta" class="card-meta"></div>
+      <div class="brief-body">
+        <div class="excerpt" id="briefExcerpt"></div>
+        <img id="briefImage" class="brief-image hidden" alt="" />
+      </div>
+      <button id="hintBtn" type="button" class="link-btn hidden" data-i18n="lib.hint"></button>
       <!-- Curated Library: bet part of the time for a bonus -->
-      <div id="betBlock" class="bet-block hidden">
-        <h3 data-i18n="bet.title"></h3>
-        <p class="muted" data-i18n="bet.help"></p>
+      <div id="betBlock" class="group hidden">
+        <p class="section-label" data-i18n="bet.title"></p>
         <div id="betOptions" class="bet-options"></div>
+        <p class="muted small" data-i18n="bet.help"></p>
       </div>
-      <div class="actions">
-        <button id="startRoundBtn" class="primary" data-i18n="briefing.start"></button>
-        <button id="reportCardBtn" type="button" class="ghost hidden" data-i18n="lib.reportReplace"></button>
-      </div>
+      <div class="spacer"></div>
+      <button id="reportCardBtn" type="button" class="link-btn hidden" data-i18n="lib.reportReplace"></button>
+      <button id="startRoundBtn" class="primary" data-i18n="briefing.start"></button>
     </div>
   </template>
 
   <template id="timerTemplate">
-    <div class="card">
-      <h2 data-i18n="timer.title"></h2>
-      <div id="timerDisplay" class="timer">00:00</div>
-      <p id="timerBet" class="muted center-text hidden"></p>
-      <div id="sneakDisplay" class="sneak hidden">
-        <div id="sneakWord"></div>
-        <div id="sneakLatin" class="latin-notice hidden" data-i18n="lib.latin"></div>
+    <div class="view">
+      <p class="kicker" data-round></p>
+      <div class="spacer"></div>
+      <div class="timer-block">
+        <p class="section-label" data-i18n="timer.title"></p>
+        <div id="timerDisplay" class="timer" role="timer"><span id="timerMain">0:00</span><span id="timerFrac" class="timer-frac">.00</span></div>
+        <div id="sneakDisplay" class="sneak hidden">
+          <div id="sneakWord"></div>
+          <div id="sneakLatin" class="badge latin hidden" data-i18n="lib.latin"></div>
+        </div>
+        <!-- Segments are added by app.js -->
+        <div id="timerBar" class="timer-bar" aria-hidden="true"></div>
+        <p id="timerBet" class="bet-chip hidden"></p>
       </div>
-      <div class="controls">
-        <button id="foundBtn" class="success" data-i18n="timer.found"></button>
-        <button id="abortBtn" class="danger" data-i18n="timer.abort"></button>
+      <div class="spacer"></div>
+      <button id="sneakBtn" class="dashed" data-i18n="timer.sneak"></button>
+      <div class="row-2">
         <button id="pauseBtn" class="secondary" data-i18n="timer.pause"></button>
-        <button id="sneakBtn" class="ghost" data-i18n="timer.sneak"></button>
+        <button id="abortBtn" class="secondary" data-i18n="timer.abort"></button>
       </div>
+      <button id="foundBtn" class="primary big" data-i18n="timer.found"></button>
     </div>
   </template>
 
   <template id="resultTemplate">
-    <div class="card">
-      <h2 id="resultTitle"></h2>
-      <p id="resultText" class="muted"></p>
+    <div class="view">
+      <div class="spacer"></div>
+      <div class="result-block">
+        <h2 id="resultTitle" class="result-title"></h2>
+        <p id="resultText" class="muted"></p>
+      </div>
+      <div class="spacer"></div>
       <div id="resultActions" class="actions"></div>
     </div>
   </template>
 
   <template id="scoreboardTemplate">
-    <div class="card">
+    <div class="view">
       <h2 data-i18n="score.title"></h2>
-      <div id="scoreSummary" class="score-summary"></div>
-      <div class="divider"></div>
-      <div id="roundBreakdown" class="muted"></div>
-      <div class="pass-message" id="passMessage"></div>
-      <div class="actions">
-        <button id="nextRoundBtn" class="primary" data-i18n="score.next"></button>
-        <button id="endGameBtn" class="ghost" data-i18n="score.end"></button>
-      </div>
+      <div id="scoreSummary" class="score-tiles"></div>
+      <div id="roundBreakdown" class="breakdown"></div>
+      <div class="spacer"></div>
+      <p class="pass-message" id="passMessage"></p>
+      <button id="nextRoundBtn" class="primary" data-i18n="score.next"></button>
+      <button id="endGameBtn" class="link-btn" data-i18n="score.end"></button>
     </div>
   </template>
 
   <template id="finalTemplate">
-    <div class="card">
+    <div class="view">
       <h2 data-i18n="final.title"></h2>
-      <div id="finalSummary" class="score-summary"></div>
-      <div class="actions">
-        <button id="resetBtn" class="primary" data-i18n="final.newGame"></button>
-      </div>
+      <div id="finalSummary" class="score-tiles"></div>
+      <div class="spacer"></div>
+      <button id="resetBtn" class="primary" data-i18n="final.newGame"></button>
     </div>
   </template>
 
   <template id="loadingTemplate">
-    <div class="card center">
-      <div class="spinner"></div>
+    <div class="view center">
+      <span class="logo loader" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <p class="muted" data-i18n="loading.text"></p>
     </div>
   </template>
 
   <div id="modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-content">
-      <button id="closeModal" class="ghost close" data-i18n="modal.close"></button>
-      <h3 id="modalTitle"></h3>
+      <div class="title-row">
+        <h3 id="modalTitle"></h3>
+        <button id="closeModal" type="button" class="chip-btn" data-i18n="modal.close"></button>
+      </div>
       <p id="modalText" class="muted"></p>
       <div id="modalActions" class="actions"></div>
     </div>

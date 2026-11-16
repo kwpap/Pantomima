@@ -24,21 +24,24 @@ const deckLabel = (deck) => t("lib.deckLabel", { n: formatNumber(deck.size) });
 const DEFAULT_DECK = DECKS[0].file;
 
 // Display info for known categories (labels: "cat.<name>" in i18n.js).
+// `color` = the category's sticker (cube colours, see design/README.md).
 // Unknown categories still work (raw name, default look).
 const CARD_CATEGORIES = {
-  Action: { icon: "🏃", color: "#43d17d" },
-  Object: { icon: "📦", color: "#e7913f" },
-  Media: { icon: "🎬", color: "#b344ff" },
-  Person: { icon: "👤", color: "#4aa3ff" },
-  Phrase: { icon: "💬", color: "#fd5151" },
+  Action: { color: "#FF8A2B" },
+  Object: { color: "#4C8DFF" },
+  Media: { color: "#FF6369" },
+  Person: { color: "#FFD43B" },
+  Phrase: { color: "#3DD68C" },
 };
-const DEFAULT_CATEGORY_INFO = { icon: "🃏", color: "#b0b0b0" };
+const DEFAULT_CATEGORY_INFO = { color: "#A0A4AB" };
 
 // Labels: "diff.<name>" in i18n.js. `seconds` = default acting time (changeable in setup).
+// `level` = filled squares (of DIFFICULTY_LEVELS) in `color`.
+const DIFFICULTY_LEVELS = 3;
 const CARD_DIFFICULTIES = {
-  easy: { seconds: 45 },
-  medium: { seconds: 60 },
-  hard: { seconds: 90 },
+  easy: { seconds: 45, level: 1, color: "#3DD68C" },
+  medium: { seconds: 60, level: 2, color: "#FFD43B" },
+  hard: { seconds: 90, level: 3, color: "#FF6369" },
 };
 const DEFAULT_SECONDS = 60; // for difficulties a future deck may add
 
@@ -73,6 +76,8 @@ const categoryInfo = (category) => ({
 });
 const difficultyInfo = (difficulty) => ({
   seconds: CARD_DIFFICULTIES[difficulty]?.seconds || DEFAULT_SECONDS,
+  level: CARD_DIFFICULTIES[difficulty]?.level || 0,
+  color: CARD_DIFFICULTIES[difficulty]?.color || DEFAULT_CATEGORY_INFO.color,
   label: hasText(`diff.${difficulty}`) ? t(`diff.${difficulty}`) : difficulty || "",
 });
 
