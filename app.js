@@ -1,3 +1,23 @@
+// Release number: must match <meta name="app-version"> in index.html.
+// A phone can keep an old cached index.html while fetching the new scripts;
+// the two don't fit together (blank screen), so reload once from a fresh URL.
+const APP_VERSION = "3";
+(() => {
+  const pageVersion = document.querySelector('meta[name="app-version"]')?.content;
+  if (pageVersion === APP_VERSION) return;
+  const key = "pantomima.reloadedFor";
+  let tried = null;
+  try {
+    tried = sessionStorage.getItem(key);
+    sessionStorage.setItem(key, APP_VERSION);
+  } catch {
+    // No storage: still try once (the new URL breaks the loop).
+  }
+  if (tried === APP_VERSION || new URLSearchParams(location.search).get("v") === APP_VERSION) return;
+  location.replace(`${location.pathname}?v=${APP_VERSION}`);
+  throw new Error("Old cached page: reloading"); // stop this script; the page is being replaced
+})();
+
 const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
 const STORAGE_KEY = "pantomima.gameState";
 // Bump when the saved game format changes: older saves are then ignored.
