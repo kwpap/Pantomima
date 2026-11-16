@@ -1,7 +1,7 @@
 // Release number: must match <meta name="app-version"> in index.html.
 // A phone can keep an old cached index.html while fetching the new scripts;
 // the two don't fit together (blank screen), so reload once from a fresh URL.
-const APP_VERSION = "3";
+const APP_VERSION = "4";
 (() => {
   const pageVersion = document.querySelector('meta[name="app-version"]')?.content;
   if (pageVersion === APP_VERSION) return;
@@ -32,7 +32,10 @@ const LIBRARY_CARDS_PER_ROUND = 2;
 const EXTRACTS_BATCH = 20;
 const MAX_FETCH_ATTEMPTS = 15;
 
-const $ = (selector) => document.querySelector(selector);
+// The screen being built (render() may insert it a frame later, after the
+// transition has captured the old screen), so look there first.
+let renderRoot = null;
+const $ = (selector) => renderRoot?.querySelector(selector) || document.querySelector(selector);
 
 const GameStates = {
   SETUP: 0,
@@ -252,63 +255,90 @@ const showToast = (message) => {
   toastTimeout = setTimeout(() => toast.classList.remove("show"), 2500);
 };
 
-// --- Screens: each one is a "face"; changing screen turns the cube (design/README.md) ---
+// --- Screens and motion (design/README.md, "Motion") ---
+// Changing screen slides it (forward: in from the right; back: from the left).
+// The chosen card's title flies into the briefing, the main button morphs into
+// the next one and the header logo turns a quarter. Uses the View Transitions
+// API where the browser has it, a plain slide-in otherwise, nothing with
+// "reduce motion".
 
-const TURN_MS = 600; // keep in sync with --turn-ms in style.css
 const reducedMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-let screenTeamColor = null; // colour of the team holding the phone on the next rendered screen
-let animateNextRender = false; // set by setState() when the screen really changes
-let finishTurn = null; // ends a running turn early
+const logo = $(".brand .logo");
+let navDirection = null; // "forward" | "back" while a screen change is being rendered, else null
+let header = { text: "", color: null }; // wanted header chip (applied with the screen)
+let pendingSwap = null; // inserts the screen being built; null once it is shown
+let activeTransition = null;
+let logoTurns = 0;
+
+const motionAllowed = () => !(reducedMotion && reducedMotion.matches);
 
 /** "Round 3 / 6" */
 const roundLabel = () => t("score.round", { round: currentRound(), total: game.totalRounds });
 
-/**
- * Show a screen. The new screen gets the current team colour (--team), and the
- * old one turns away like a cube face when the screen changed.
- */
-const render = (node) => {
-  applyTranslations(node);
-  node.querySelectorAll("[data-round]").forEach((label) => (label.textContent = roundLabel()));
-  if (finishTurn) finishTurn();
-
-  const face = el("div", "face");
-  if (screenTeamColor) face.style.setProperty("--team", screenTeamColor);
-  face.appendChild(node);
-
-  const old = screenContainer.firstElementChild;
-  const animate = animateNextRender && old && !(reducedMotion && reducedMotion.matches);
-  animateNextRender = false;
-  if (!animate) {
-    screenContainer.replaceChildren(face);
-    return;
-  }
-
-  // The old screen stays visible during the turn: ids must stay unique for $().
-  old.inert = true;
-  old.querySelectorAll("[id]").forEach((n) => n.removeAttribute("id"));
-  const cube = el("div", "cube");
-  cube.style.setProperty("--half", `${screenContainer.clientWidth / 2}px`);
-  cube.append(old, face);
-  screenContainer.replaceChildren(cube);
-  screenContainer.classList.add("turning");
-  const timeout = setTimeout(() => finishTurn && finishTurn(), TURN_MS + 40);
-  finishTurn = () => {
-    clearTimeout(timeout);
-    finishTurn = null;
-    screenContainer.classList.remove("turning");
-    screenContainer.replaceChildren(face);
-  };
-};
-
-/** Header chip. `color` (a team's colour) also becomes the next screen's --team. */
-const setTeamIndicator = (text, color) => {
-  screenTeamColor = color || null;
+/** Header chip text and team colour; the colour also tints the screen (--team). */
+const applyHeader = () => {
+  const { text, color } = header;
   teamIndicatorText.textContent = text || "";
   teamIndicator.classList.toggle("hidden", !text);
   teamIndicator.classList.toggle("neutral", !color);
-  if (color) teamIndicator.style.setProperty("--team", color);
-  else teamIndicator.style.removeProperty("--team");
+  for (const node of [teamIndicator, renderRoot]) {
+    if (!node) continue;
+    if (color) node.style.setProperty("--team", color);
+    else node.style.removeProperty("--team");
+  }
+};
+
+/** Header chip. `color` (a team's colour) also becomes the screen's --team. */
+const setTeamIndicator = (text, color) => {
+  header = { text, color: color || null };
+  if (!pendingSwap) applyHeader(); // else applied when the screen is shown
+};
+
+const turnLogo = (direction) => {
+  if (!logo || !motionAllowed()) return;
+  logoTurns += direction === "back" ? -1 : 1;
+  logo.style.transform = `rotate(${logoTurns * 90}deg)`;
+};
+
+/** Show a screen (the template content in `node`). */
+const render = (node) => {
+  applyTranslations(node);
+  node.querySelectorAll("[data-round]").forEach((label) => (label.textContent = roundLabel()));
+
+  const face = el("div", "face");
+  face.appendChild(node);
+  renderRoot = face; // $() finds the new screen's elements from now on
+
+  const direction = navDirection;
+  navDirection = null;
+  const show = () => {
+    if (renderRoot !== face) return; // a newer screen came first
+    pendingSwap = null;
+    screenContainer.replaceChildren(face);
+    applyHeader();
+    if (direction) turnLogo(direction);
+  };
+
+  if (activeTransition) activeTransition.skipTransition();
+  if (!direction || !motionAllowed() || !screenContainer.firstElementChild) {
+    show();
+    return;
+  }
+
+  document.documentElement.dataset.nav = direction;
+  if (document.startViewTransition) {
+    pendingSwap = show;
+    const transition = document.startViewTransition(show);
+    activeTransition = transition;
+    transition.ready.catch(() => {}); // rejects when a newer screen skips this one: expected
+    transition.finished.finally(() => {
+      if (activeTransition === transition) activeTransition = null;
+    });
+  } else {
+    show();
+    face.classList.add("enter");
+    face.addEventListener("animationend", () => face.classList.remove("enter"), { once: true });
+  }
 };
 
 /** Small coloured square. */
@@ -744,8 +774,37 @@ const SAVED_STATES = new Set([
 
 let shownState = null; // last state given to setState()
 
-const setState = (state) => {
-  animateNextRender = shownState !== null && shownState !== state;
+// Back navigation. Only Setup has a sensible "previous screen" (the version
+// picker); mid-game screens don't (going back would undo picks or show the
+// card to the wrong team). The browser/system back gesture does the same:
+// entering Setup adds a history entry.
+const BACK_TARGETS = { [GameStates.SETUP]: GameStates.MODE_SELECT };
+let setupHistoryEntry = false;
+
+const canGoBack = () => game.state in BACK_TARGETS;
+
+const goBack = () => {
+  if (!canGoBack()) return;
+  if (setupHistoryEntry) history.back(); // popstate does the rest
+  else setState(BACK_TARGETS[game.state], { back: true });
+};
+
+window.addEventListener("popstate", () => {
+  if (!setupHistoryEntry) return;
+  setupHistoryEntry = false;
+  if (canGoBack()) setState(BACK_TARGETS[game.state], { back: true });
+});
+
+const setState = (state, { back = false } = {}) => {
+  if (shownState !== null && shownState !== state) navDirection = back ? "back" : "forward";
+  if (state === GameStates.SETUP && shownState === GameStates.MODE_SELECT && !back && !setupHistoryEntry) {
+    try {
+      history.pushState({ pantomima: "setup" }, "");
+      setupHistoryEntry = true;
+    } catch {
+      // History not available (e.g. sandboxed frame): the back gesture just leaves.
+    }
+  }
   shownState = state;
   game.state = state;
   if (SAVED_STATES.has(state)) game.save();
@@ -854,7 +913,7 @@ const renderSetup = () => {
 
   const changeModeBtn = $("#changeModeBtn");
   changeModeBtn.textContent = `${t(source.labelKey)} ›`;
-  changeModeBtn.addEventListener("click", () => setState(GameStates.MODE_SELECT));
+  changeModeBtn.addEventListener("click", goBack);
 
   const categorySelect = $("#categorySelect");
   CATEGORIES.forEach(({ value, labelKey }) => {
@@ -1686,6 +1745,63 @@ const renderFinal = () => {
     window.location.reload();
   });
 };
+
+// Swipe right (from anywhere on the screen) = back, where there is a back.
+// The screen follows the finger; let go past 30% of the width (or flick) to go back.
+(() => {
+  let start = null;
+  let suppressClickUntil = 0;
+  screenContainer.addEventListener("click", (event) => {
+    if (performance.now() > suppressClickUntil) return;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+  const face = () => screenContainer.firstElementChild;
+  const reset = (animate) => {
+    const f = face();
+    if (!f) return;
+    f.style.transition = animate ? "transform 0.25s cubic-bezier(.2,.8,.2,1), opacity 0.25s" : "";
+    f.style.transform = "";
+    f.style.opacity = "";
+  };
+  screenContainer.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "touch" || !canGoBack()) return;
+    if (event.target.closest("input, select, textarea, .sheet")) return;
+    start = { x: event.clientX, y: event.clientY, t: performance.now(), id: event.pointerId, dragging: false };
+  });
+  screenContainer.addEventListener("pointermove", (event) => {
+    if (!start || event.pointerId !== start.id) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (!start.dragging) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { start = null; return; } // vertical: not ours
+      if (dx < 12) return;
+      start.dragging = true;
+    }
+    const f = face();
+    if (!f) return;
+    const x = Math.max(0, dx);
+    f.style.transition = "none";
+    f.style.transform = `translateX(${x}px)`;
+    f.style.opacity = String(1 - Math.min(0.5, x / screenContainer.clientWidth));
+  });
+  const end = (event) => {
+    if (!start || event.pointerId !== start.id) return;
+    const { dragging } = start;
+    const dx = event.clientX - start.x;
+    const speed = dx / Math.max(1, performance.now() - start.t); // px per ms
+    start = null;
+    if (!dragging) return;
+    suppressClickUntil = performance.now() + 400; // a swipe must not also press the button it started on
+    if (event.type === "pointerup" && (dx > screenContainer.clientWidth * 0.3 || (dx > 40 && speed > 0.5))) {
+      goBack();
+    } else {
+      reset(true);
+    }
+  };
+  screenContainer.addEventListener("pointerup", end);
+  screenContainer.addEventListener("pointercancel", end);
+})();
 
 const init = () => {
   applyTranslations(modal); // the dialog is not a template

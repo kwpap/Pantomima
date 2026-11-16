@@ -19,7 +19,6 @@
   --team: var(--text);
   --font: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --turn-ms: 600ms;
 }
 
 * {
@@ -98,6 +97,7 @@ select {
 
 /* 3×3 scrambled cube face */
 .logo {
+  transition: transform 520ms cubic-bezier(0.34, 1.4, 0.64, 1); /* a quarter turn, slight overshoot */
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
@@ -195,37 +195,58 @@ select {
   min-height: 0;
 }
 
-/* Cube turn between screens (render() in app.js). --half = half the screen width. */
-.screen.turning {
-  perspective: 1300px;
+/* --- Motion (render() in app.js; design/README.md "Motion") ---
+   View Transitions: the screen slides, the header stays, named elements fly. */
+.app-header { view-transition-name: header; }
+.brand .logo { view-transition-name: logo; }
+.team-chip { view-transition-name: team-chip; }
+.screen { view-transition-name: screen; }
+/* Shared elements: the chosen card title -> briefing word; main button -> next main button */
+.pick-card.selected .pick-title,
+.option.selected .title,
+.view > .word { view-transition-name: card-word; }
+.view > .primary { view-transition-name: main-action; }
+
+::view-transition-group(*) {
+  animation-duration: 340ms;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.cube {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  animation: cube-turn var(--turn-ms) cubic-bezier(0.65, 0, 0.35, 1) forwards;
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-old(header),
+::view-transition-new(header) {
+  animation: none;
 }
 
-.cube > .face {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+::view-transition-old(screen) {
+  animation: 200ms cubic-bezier(0.4, 0, 1, 1) both slide-out-left;
 }
 
-.cube > .face:first-child {
-  transform: translateZ(var(--half));
+::view-transition-new(screen) {
+  animation: 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both slide-in-right;
 }
 
-.cube > .face:last-child {
-  transform: rotateY(90deg) translateZ(var(--half));
-}
+html[data-nav="back"]::view-transition-old(screen) { animation-name: slide-out-right; }
+html[data-nav="back"]::view-transition-new(screen) { animation-name: slide-in-left; }
 
-@keyframes cube-turn {
-  from { transform: translateZ(calc(-1 * var(--half))) rotateY(0deg); }
-  to { transform: translateZ(calc(-1 * var(--half))) rotateY(-90deg); }
-}
+/* The logo turns itself (see .brand .logo transition): show the live one only. */
+::view-transition-old(logo) { display: none; }
+::view-transition-new(logo) { animation: none; }
+
+@keyframes slide-out-left { to { opacity: 0; transform: translateX(-40px); } }
+@keyframes slide-in-right { from { opacity: 0; transform: translateX(48px); } }
+@keyframes slide-out-right { to { opacity: 0; transform: translateX(40px); } }
+@keyframes slide-in-left { from { opacity: 0; transform: translateX(-48px); } }
+
+/* Browsers without View Transitions: the new screen slides in. */
+.face.enter { animation: 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both slide-in-right; }
+html[data-nav="back"] .face.enter { animation-name: slide-in-left; }
+
+/* Swipe right to go back: vertical scrolling stays native, horizontal comes to app.js.
+   Must be on every element (scroll boxes inside the screen reset it otherwise). */
+.screen,
+.screen * { touch-action: pan-y pinch-zoom; }
 
 /* --- Text --- */
 h2 {
@@ -1255,6 +1276,7 @@ input.switch:checked::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .logo,
   .logo.loader i,
   input.switch,
   input.switch::after {
